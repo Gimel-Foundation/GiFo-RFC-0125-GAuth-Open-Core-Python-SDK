@@ -41,6 +41,40 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 | `validation.ts` | validateSchema(), validateCeilings(), validateConsistency(), validateMandate() |
 | `errors.ts` | ManagementErrorCode type, ERROR_CODE_HTTP_STATUS map, ManagementError class |
 
+## GAuth Management API (Express 5)
+
+- **Location**: `artifacts/api-server/src/routes/gauth-mgmt.ts` (routes), `artifacts/api-server/src/lib/mgmt-service.ts` (service layer)
+- **Base path**: `/api/gauth/mgmt/v1/`
+- **17 endpoints**: mandate CRUD, status transitions, budget ops, TTL extension, delegation, profiles, health
+- **Transactional safety**: activation (supersession), budget consumption, and delegation use explicit PostgreSQL transactions
+- **Idempotent consumption**: duplicate `enforcement_request_id` returns current budget state (no double deduction)
+- **Cascade**: revocation/suspension propagates synchronously to all child delegations
+- **TTL ceiling validation**: extensions validated against governance profile `maxSessionDurationMinutes`
+- **Error handling**: ManagementError → structured JSON responses with correct HTTP status codes
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /mandates | Create DRAFT mandate |
+| GET | /mandates | List with filter/pagination |
+| GET | /mandates/:id | Get mandate detail |
+| DELETE | /mandates/:id | Delete DRAFT only |
+| GET | /mandates/:id/history | Audit trail |
+| POST | /mandates/:id/activate | DRAFT→ACTIVE (with supersession) |
+| POST | /mandates/:id/revoke | ACTIVE\|SUSPENDED→REVOKED (cascade) |
+| POST | /mandates/:id/suspend | ACTIVE→SUSPENDED (cascade) |
+| POST | /mandates/:id/resume | SUSPENDED→ACTIVE (expiry check) |
+| POST | /mandates/:id/budget/increase | Additive-only budget increase |
+| POST | /mandates/:id/budget/consume | Idempotent PEP consumption |
+| GET | /mandates/:id/budget | Current budget state |
+| POST | /mandates/:id/ttl/extend | Additive-only TTL extension |
+| POST | /delegations | Create child delegation |
+| GET | /mandates/:id/delegation-chain | Full ancestry chain |
+| GET | /profiles | List governance profiles |
+| GET | /profiles/:profile/ceilings | Profile ceiling table |
+| GET | /health | Version and feature flags |
+
 ## GAuth Open Core (Python SDK)
 
 - **Location**: `gauth-core/`
