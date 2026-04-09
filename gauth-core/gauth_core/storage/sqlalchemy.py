@@ -178,6 +178,15 @@ class SQLAlchemyMandateRepository(MandateRepository):
             if status:
                 query = query.where(MandateRow.status == status)
 
+            if agent_id:
+                query = query.where(MandateRow.parties["subject"].as_string() == agent_id)
+
+            if project_id:
+                query = query.where(MandateRow.parties["project_id"].as_string() == project_id)
+
+            if governance_profile:
+                query = query.where(MandateRow.scope["governance_profile"].as_string() == governance_profile)
+
             total_query = select(func.count()).select_from(query.subquery())
             total = session.execute(total_query).scalar() or 0
 

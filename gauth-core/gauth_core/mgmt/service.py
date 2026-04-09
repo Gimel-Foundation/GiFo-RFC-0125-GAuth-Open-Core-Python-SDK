@@ -507,7 +507,25 @@ class MandateManagementService:
                     narrowed = {}
                     for k, v in parent_verbs.items():
                         if k in restricted_verbs:
-                            narrowed[k] = restricted_verbs[k]
+                            parent_policy = v if isinstance(v, dict) else {"allowed": bool(v)}
+                            child_policy = restricted_verbs[k] if isinstance(restricted_verbs[k], dict) else {"allowed": bool(restricted_verbs[k])}
+                            merged = {**parent_policy}
+                            if not parent_policy.get("allowed", True):
+                                merged["allowed"] = False
+                            elif not child_policy.get("allowed", True):
+                                merged["allowed"] = False
+                            else:
+                                merged["allowed"] = True
+                            if child_policy.get("requires_approval", False) or parent_policy.get("requires_approval", False):
+                                merged["requires_approval"] = True
+                            if "max_per_session" in child_policy and "max_per_session" in parent_policy:
+                                p_max = parent_policy["max_per_session"]
+                                c_max = child_policy["max_per_session"]
+                                if p_max is not None and c_max is not None:
+                                    merged["max_per_session"] = min(p_max, c_max)
+                                elif p_max is not None:
+                                    merged["max_per_session"] = p_max
+                            narrowed[k] = merged
                     child_scope["core_verbs"] = narrowed
                 elif key in bool_restrict_keys and isinstance(value, dict):
                     parent_dict = child_scope.get(key, {})
@@ -525,7 +543,7 @@ class MandateManagementService:
                                 narrowed_dict[dk] = dv
                         child_scope[key] = narrowed_dict
                 elif key in {"governance_profile", "phase"}:
-                    child_scope[key] = value
+                    pass
 
         child_mandate = {
             "mandate_id": child_id,

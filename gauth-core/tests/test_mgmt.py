@@ -263,6 +263,59 @@ class TestDelegation:
         assert pp["db_write"] is False
         assert pp["db_production"] is False
 
+    def test_delegation_core_verbs_cannot_escalate_allowed(self, service):
+        data = _valid_mandate_data()
+        data["scope"]["core_verbs"] = {
+            "read": {"allowed": True},
+            "delete": {"allowed": False},
+        }
+        created = service.create_mandate(data)
+        service.activate_mandate(created["mandate_id"], "user_1")
+        result = service.create_delegation(
+            created["mandate_id"],
+            "sub_agent",
+            {"core_verbs": {"read": {"allowed": True}, "delete": {"allowed": True}}},
+            2000,
+            3600,
+            "agent_1",
+        )
+        child = service.get_mandate(result["mandate_id"])
+        assert child["scope"]["core_verbs"]["delete"]["allowed"] is False
+
+    def test_delegation_core_verbs_requires_approval_monotonic(self, service):
+        data = _valid_mandate_data()
+        data["scope"]["core_verbs"] = {
+            "write": {"allowed": True, "requires_approval": True},
+        }
+        created = service.create_mandate(data)
+        service.activate_mandate(created["mandate_id"], "user_1")
+        result = service.create_delegation(
+            created["mandate_id"],
+            "sub_agent",
+            {"core_verbs": {"write": {"allowed": True, "requires_approval": False}}},
+            2000,
+            3600,
+            "agent_1",
+        )
+        child = service.get_mandate(result["mandate_id"])
+        assert child["scope"]["core_verbs"]["write"]["requires_approval"] is True
+
+    def test_delegation_governance_profile_immutable(self, service):
+        data = _valid_mandate_data()
+        created = service.create_mandate(data)
+        service.activate_mandate(created["mandate_id"], "user_1")
+        parent_profile = service.get_mandate(created["mandate_id"])["scope"]["governance_profile"]
+        result = service.create_delegation(
+            created["mandate_id"],
+            "sub_agent",
+            {"governance_profile": "enterprise"},
+            2000,
+            3600,
+            "agent_1",
+        )
+        child = service.get_mandate(result["mandate_id"])
+        assert child["scope"]["governance_profile"] == parent_profile
+
     def test_delegation_ignores_unknown_scope_keys(self, service):
         created = service.create_mandate(_valid_mandate_data())
         service.activate_mandate(created["mandate_id"], "user_1")

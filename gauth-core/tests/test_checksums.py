@@ -23,6 +23,28 @@ class TestCanonicalJson:
         assert a == b
 
 
+    def test_nested_key_order_determinism(self):
+        a = canonical_json({"x": {"z": 1, "a": 2}, "m": [3, {"b": 4, "a": 5}]})
+        b = canonical_json({"m": [3, {"a": 5, "b": 4}], "x": {"a": 2, "z": 1}})
+        assert a == b
+
+    def test_rfc8785_nan_rejected(self):
+        import pytest
+        with pytest.raises(ValueError, match="NaN"):
+            canonical_json(float("nan"))
+
+    def test_rfc8785_infinity_rejected(self):
+        import pytest
+        with pytest.raises(ValueError, match="Infinity"):
+            canonical_json(float("inf"))
+
+    def test_integer_zero(self):
+        assert canonical_json(0) == "0"
+
+    def test_float_zero(self):
+        assert canonical_json(0.0) == "0"
+
+
 class TestChecksums:
     def test_scope_checksum_prefix(self):
         result = compute_scope_checksum({"governance_profile": "minimal"})
