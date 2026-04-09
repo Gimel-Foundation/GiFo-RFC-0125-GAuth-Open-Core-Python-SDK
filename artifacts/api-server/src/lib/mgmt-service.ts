@@ -110,6 +110,7 @@ async function cascadeStatusToChildren(
   txDb: TxDb,
   parentMandateId: string,
   newStatus: "REVOKED" | "SUSPENDED",
+  initiatingCaller: string,
 ) {
   const children = await txDb
     .select()
@@ -131,15 +132,15 @@ async function cascadeStatusToChildren(
           updatedAt: new Date(),
         })
         .where(eq(mandatesTable.mandateId, child.childMandateId));
-      await txAuditLog(txDb, child.childMandateId, newStatus === "REVOKED" ? "REVOKE" : "SUSPEND", "system", {
+      await txAuditLog(txDb, child.childMandateId, newStatus === "REVOKED" ? "REVOKE" : "SUSPEND", initiatingCaller, {
         reason: `Cascaded from parent ${parentMandateId}`,
       });
-      await cascadeStatusToChildren(txDb, child.childMandateId, newStatus);
+      await cascadeStatusToChildren(txDb, child.childMandateId, newStatus, initiatingCaller);
     }
   }
 }
 
-async function cascadeResumeToChildren(txDb: TxDb, parentMandateId: string) {
+async function cascadeResumeToChildren(txDb: TxDb, parentMandateId: string, initiatingCaller: string) {
   const children = await txDb
     .select()
     .from(delegationsTable)
@@ -158,7 +159,7 @@ async function cascadeResumeToChildren(txDb: TxDb, parentMandateId: string) {
           .update(mandatesTable)
           .set({ status: "EXPIRED", subjectProjectActive: null, updatedAt: now })
           .where(eq(mandatesTable.mandateId, child.childMandateId));
-        await txAuditLog(txDb, child.childMandateId, "RESUME", "system", {
+        await txAuditLog(txDb, child.childMandateId, "RESUME", initiatingCaller, {
           reason: "Expired during suspension",
         });
       } else {
@@ -166,10 +167,10 @@ async function cascadeResumeToChildren(txDb: TxDb, parentMandateId: string) {
           .update(mandatesTable)
           .set({ status: "ACTIVE", updatedAt: now })
           .where(eq(mandatesTable.mandateId, child.childMandateId));
-        await txAuditLog(txDb, child.childMandateId, "RESUME", "system", {
+        await txAuditLog(txDb, child.childMandateId, "RESUME", initiatingCaller, {
           reason: `Cascaded resume from parent ${parentMandateId}`,
         });
-        await cascadeResumeToChildren(txDb, child.childMandateId);
+        await cascadeResumeToChildren(txDb, child.childMandateId, initiatingCaller);
       }
     }
   }
@@ -286,13 +287,13 @@ export async function listMandates(params: {
   const pageConditions = [...baseConditions];
   if (params.cursor) {
     const cursorMandate = await db
-      .select({ createdAt: mandatesTable.createdAt })
+      .select({ createdAt: mandatesTable.createdAt, mandateId: mandatesTable.mandateId })
       .from(mandatesTable)
       .where(eq(mandatesTable.mandateId, params.cursor))
       .limit(1);
     if (cursorMandate.length > 0) {
       pageConditions.push(
-        sql`${mandatesTable.createdAt} < ${cursorMandate[0].createdAt}`,
+        sql`(${mandatesTable.createdAt}, ${mandatesTable.mandateId}) < (${cursorMandate[0].createdAt}, ${cursorMandate[0].mandateId})`,
       );
     }
   }
@@ -302,7 +303,7 @@ export async function listMandates(params: {
     .select()
     .from(mandatesTable)
     .where(pageWhere)
-    .orderBy(desc(mandatesTable.createdAt))
+    .orderBy(desc(mandatesTable.createdAt), desc(mandatesTable.mandateId))
     .limit(limit);
 
   const items = rows.map(mandateToResponse);
@@ -470,7 +471,7 @@ export async function revokeMandate(mandateId: string, reason: string, caller: s
 
     await txDb.update(mandatesTable).set({ status: "REVOKED", subjectProjectActive: null, updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
     await txAuditLog(txDb, mandateId, "REVOKE", caller, { reason });
-    await cascadeStatusToChildren(txDb, mandateId, "REVOKED");
+    await cascadeStatusToChildren(txDb, mandateId, "REVOKED", caller);
 
     await client.query("COMMIT");
   } catch (err) {
@@ -507,7 +508,7 @@ export async function suspendMandate(mandateId: string, reason: string, caller: 
 
     await txDb.update(mandatesTable).set({ status: "SUSPENDED", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
     await txAuditLog(txDb, mandateId, "SUSPEND", caller, { reason });
-    await cascadeStatusToChildren(txDb, mandateId, "SUSPENDED");
+    await cascadeStatusToChildren(txDb, mandateId, "SUSPENDED", caller);
 
     await client.query("COMMIT");
   } catch (err) {
@@ -551,7 +552,7 @@ export async function resumeMandate(mandateId: string, caller: string) {
 
     await txDb.update(mandatesTable).set({ status: "ACTIVE", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
     await txAuditLog(txDb, mandateId, "RESUME", caller);
-    await cascadeResumeToChildren(txDb, mandateId);
+    await cascadeResumeToChildren(txDb, mandateId, caller);
 
     await client.query("COMMIT");
   } catch (err) {
