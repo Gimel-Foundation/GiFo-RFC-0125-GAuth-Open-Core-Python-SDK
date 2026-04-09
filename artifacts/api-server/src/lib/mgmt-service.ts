@@ -842,8 +842,21 @@ export async function createDelegation(
   if (newDepth > ceiling.maxDelegationDepth) {
     throw new ManagementError(
       "DELEGATION_DEPTH_EXCEEDED",
-      `Depth ${newDepth} exceeds ceiling ${ceiling.maxDelegationDepth}`,
+      `Depth ${newDepth} exceeds profile ceiling ${ceiling.maxDelegationDepth}`,
     );
+  }
+
+  const parentScope = parent.scope as Record<string, unknown>;
+  const coreVerbs = (parentScope.core_verbs ?? {}) as Record<string, unknown>;
+  const delegationVerb = coreVerbs.agent_delegation as Record<string, unknown> | undefined;
+  if (delegationVerb) {
+    const constraints = (delegationVerb.constraints ?? {}) as Record<string, unknown>;
+    if (typeof constraints.max_delegation_depth === "number" && newDepth > constraints.max_delegation_depth) {
+      throw new ManagementError(
+        "DELEGATION_DEPTH_EXCEEDED",
+        `Depth ${newDepth} exceeds mandate-level max_delegation_depth ${constraints.max_delegation_depth}`,
+      );
+    }
   }
 
   if (budgetCents > parent.budgetRemainingCents) {
@@ -865,7 +878,6 @@ export async function createDelegation(
     }
   }
 
-  const parentScope = parent.scope as Record<string, unknown>;
   const childScope = { ...parentScope };
 
   if (Object.keys(scopeRestriction).length > 0) {

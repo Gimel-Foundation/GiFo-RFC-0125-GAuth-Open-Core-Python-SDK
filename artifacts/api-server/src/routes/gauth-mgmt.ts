@@ -16,9 +16,19 @@ import * as mgmt from "../lib/mgmt-service";
 
 const router = Router();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function param(req: Request, name: string): string {
   const v = req.params[name];
   return Array.isArray(v) ? v[0] : v;
+}
+
+function paramUUID(req: Request, name: string): string {
+  const v = param(req, name);
+  if (!UUID_RE.test(v)) {
+    throw new ManagementError("SCHEMA_VALIDATION_FAILED", `Invalid UUID for '${name}': ${v}`);
+  }
+  return v;
 }
 
 function asyncHandler(
@@ -149,7 +159,7 @@ router.get(
 router.get(
   "/mandates/:id",
   asyncHandler(async (req, res) => {
-    const result = await mgmt.getMandate(param(req, "id"));
+    const result = await mgmt.getMandate(paramUUID(req, "id"));
     res.json(result);
   }),
 );
@@ -157,7 +167,7 @@ router.get(
 router.delete(
   "/mandates/:id",
   asyncHandler(async (req, res) => {
-    const result = await mgmt.deleteMandate(param(req, "id"), getCaller(req));
+    const result = await mgmt.deleteMandate(paramUUID(req, "id"), getCaller(req));
     res.json(result);
   }),
 );
@@ -165,7 +175,7 @@ router.delete(
 router.get(
   "/mandates/:id/history",
   asyncHandler(async (req, res) => {
-    const result = await mgmt.getMandateHistory(param(req, "id"));
+    const result = await mgmt.getMandateHistory(paramUUID(req, "id"));
     res.json(result);
   }),
 );
@@ -174,10 +184,10 @@ router.post(
   "/mandates/:id/activate",
   asyncHandler(async (req, res) => {
     zodParse(mandateActivationRequestSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       activated_by: getCaller(req),
     });
-    const result = await mgmt.activateMandate(param(req, "id"), getCaller(req));
+    const result = await mgmt.activateMandate(paramUUID(req, "id"), getCaller(req));
     res.json(result);
   }),
 );
@@ -186,11 +196,11 @@ router.post(
   "/mandates/:id/revoke",
   asyncHandler(async (req, res) => {
     const parsed = zodParse(mandateRevocationRequestSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       reason: req.body?.reason ?? "",
       revoked_by: getCaller(req),
     });
-    const result = await mgmt.revokeMandate(param(req, "id"), parsed.reason as string, getCaller(req));
+    const result = await mgmt.revokeMandate(paramUUID(req, "id"), parsed.reason as string, getCaller(req));
     res.json(result);
   }),
 );
@@ -199,11 +209,11 @@ router.post(
   "/mandates/:id/suspend",
   asyncHandler(async (req, res) => {
     const parsed = zodParse(mandateSuspensionRequestSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       reason: req.body?.reason ?? "",
       suspended_by: getCaller(req),
     });
-    const result = await mgmt.suspendMandate(param(req, "id"), parsed.reason as string, getCaller(req));
+    const result = await mgmt.suspendMandate(paramUUID(req, "id"), parsed.reason as string, getCaller(req));
     res.json(result);
   }),
 );
@@ -212,10 +222,10 @@ router.post(
   "/mandates/:id/resume",
   asyncHandler(async (req, res) => {
     zodParse(mandateResumptionRequestSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       resumed_by: getCaller(req),
     });
-    const result = await mgmt.resumeMandate(param(req, "id"), getCaller(req));
+    const result = await mgmt.resumeMandate(paramUUID(req, "id"), getCaller(req));
     res.json(result);
   }),
 );
@@ -224,12 +234,12 @@ router.post(
   "/mandates/:id/budget/increase",
   asyncHandler(async (req, res) => {
     const parsed = zodParse(budgetIncreaseRequestSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       additional_cents: req.body?.additional_cents,
       increased_by: getCaller(req),
     });
     const result = await mgmt.increaseBudget(
-      param(req, "id"),
+      paramUUID(req, "id"),
       parsed.additional_cents as number,
       getCaller(req),
     );
@@ -241,13 +251,13 @@ router.post(
   "/mandates/:id/budget/consume",
   asyncHandler(async (req, res) => {
     const parsed = zodParse(consumptionReportSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       enforcement_request_id: req.body?.enforcement_request_id,
       amount_cents: req.body?.amount_cents,
       description: req.body?.description ?? "",
     });
     const result = await mgmt.consumeBudget(
-      param(req, "id"),
+      paramUUID(req, "id"),
       parsed.enforcement_request_id as string,
       parsed.amount_cents as number,
       parsed.description as string,
@@ -260,7 +270,7 @@ router.post(
 router.get(
   "/mandates/:id/budget",
   asyncHandler(async (req, res) => {
-    const result = await mgmt.getBudget(param(req, "id"));
+    const result = await mgmt.getBudget(paramUUID(req, "id"));
     res.json(result);
   }),
 );
@@ -269,12 +279,12 @@ router.post(
   "/mandates/:id/ttl/extend",
   asyncHandler(async (req, res) => {
     const parsed = zodParse(ttlExtensionRequestSchema, {
-      mandate_id: param(req, "id"),
+      mandate_id: paramUUID(req, "id"),
       additional_seconds: req.body?.additional_seconds,
       extended_by: getCaller(req),
     });
     const result = await mgmt.extendTtl(
-      param(req, "id"),
+      paramUUID(req, "id"),
       parsed.additional_seconds as number,
       getCaller(req),
     );
@@ -308,7 +318,7 @@ router.post(
 router.get(
   "/mandates/:id/delegation-chain",
   asyncHandler(async (req, res) => {
-    const result = await mgmt.getDelegationChain(param(req, "id"));
+    const result = await mgmt.getDelegationChain(paramUUID(req, "id"));
     res.json(result);
   }),
 );
