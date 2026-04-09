@@ -114,20 +114,72 @@ function chk02TemporalValidity(cred: PoACredentialInput, ctx: EnforcementContext
   return pass(id, name, "Temporal validity confirmed");
 }
 
-function chk03GovernanceProfile(cred: PoACredentialInput): CheckResult {
+function chk03GovernanceProfile(cred: PoACredentialInput, action: EnforcementAction): CheckResult {
   const id = "CHK-03";
   const name = "Governance Profile Ceiling";
   const profile = cred.governance_profile as GovernanceProfile;
   if (!(governanceProfileValues as readonly string[]).includes(profile)) {
     return fail(id, name, violationCodes.UNKNOWN_PROFILE, `Unknown governance profile: ${profile}`);
   }
-  return pass(id, name, `Profile ${profile} is valid`);
+
+  const ceiling = CEILING_TABLE[profile];
+
+  const approvalRank = APPROVAL_MODE_RANK[cred.approval_mode as ApprovalMode] ?? 0;
+  const minRank = APPROVAL_MODE_RANK[ceiling.minApprovalMode];
+  if (approvalRank < minRank) {
+    return fail(id, name, violationCodes.GOVERNANCE_PROFILE_VIOLATION, `Approval mode '${cred.approval_mode}' is below minimum '${ceiling.minApprovalMode}' for profile ${profile}`);
+  }
+
+  if (cred.delegation_chain && cred.delegation_chain.length > 0 && !ceiling.agentDelegation) {
+    return fail(id, name, violationCodes.GOVERNANCE_PROFILE_VIOLATION, `Profile ${profile} does not allow agent delegation`);
+  }
+
+  if (cred.delegation_chain && cred.delegation_chain.length > ceiling.maxDelegationDepth) {
+    return fail(id, name, violationCodes.GOVERNANCE_PROFILE_VIOLATION, `Delegation chain depth ${cred.delegation_chain.length} exceeds profile max ${ceiling.maxDelegationDepth}`);
+  }
+
+  const verb = action.verb;
+  const platformPermMap: Record<string, keyof typeof ceiling> = {
+    deploy: "autoDeploy",
+    db_write: "dbWrite",
+    db_migrate: "dbMigration",
+    secrets_read: "secretsRead",
+    secrets_create: "secretsCreate",
+  };
+  const ceilingKey = platformPermMap[verb];
+  if (ceilingKey && ceiling[ceilingKey] === false) {
+    return fail(id, name, violationCodes.GOVERNANCE_PROFILE_VIOLATION, `Verb '${verb}' is not allowed under profile ${profile} (${String(ceilingKey)}=false)`);
+  }
+
+  if (ceiling.maxSessionDurationMinutes !== null && cred.ttl_seconds > ceiling.maxSessionDurationMinutes * 60) {
+    return fail(id, name, violationCodes.GOVERNANCE_PROFILE_VIOLATION, `TTL ${cred.ttl_seconds}s exceeds profile max ${ceiling.maxSessionDurationMinutes * 60}s`);
+  }
+
+  return pass(id, name, `Profile ${profile} ceiling checks passed`);
 }
+
+const PHASE_VERB_MAP: Record<string, Set<string>> = {
+  plan: new Set(["read", "list", "search", "query", "analyze", "plan"]),
+  build: new Set(["read", "list", "search", "query", "analyze", "plan", "code_edit", "code_create", "code_delete", "test", "lint", "format", "build", "install"]),
+  run: new Set(["read", "list", "search", "query", "analyze", "deploy", "db_write", "db_migrate", "db_read", "secrets_read", "secrets_create", "execute", "monitor", "code_edit", "code_create", "code_delete", "test", "lint", "format", "build", "install"]),
+};
 
 function chk04Phase(cred: PoACredentialInput, action: EnforcementAction): CheckResult {
   const id = "CHK-04";
   const name = "Phase Match";
-  return pass(id, name, `Phase ${cred.phase} accepted for action ${action.verb}`);
+  const phase = cred.phase;
+  const verb = action.verb;
+
+  const allowedVerbs = PHASE_VERB_MAP[phase];
+  if (!allowedVerbs) {
+    return fail(id, name, violationCodes.PHASE_MISMATCH, `Unknown phase '${phase}'`);
+  }
+
+  if (!allowedVerbs.has(verb)) {
+    return fail(id, name, violationCodes.PHASE_MISMATCH, `Verb '${verb}' is not permitted in phase '${phase}'`);
+  }
+
+  return pass(id, name, `Phase '${phase}' permits verb '${verb}'`);
 }
 
 function chk05Sector(scope: Scope, ctx: EnforcementContext): CheckResult {
@@ -203,7 +255,7 @@ function chk08Verb(scope: Scope, action: EnforcementAction, isStateful: boolean,
   if (isStateful) {
     const verbs = scope.core_verbs as Record<string, Record<string, unknown>>;
     if (Object.keys(verbs).length === 0) {
-      return pass(id, name, "No verb restrictions defined");
+      return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' denied: no verbs defined in scope (fail-closed)`);
     }
     const policy = verbs[verb];
     if (!policy) {
@@ -219,14 +271,15 @@ function chk08Verb(scope: Scope, action: EnforcementAction, isStateful: boolean,
     return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, "Tool permissions hash mismatch (stale credential)");
   }
   const verbs = scope.core_verbs as Record<string, Record<string, unknown>>;
-  if (Object.keys(verbs).length > 0) {
-    const policy = verbs[verb];
-    if (!policy) {
-      return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' not in credential core_verbs`);
-    }
-    if (policy.allowed === false) {
-      return fail(id, name, violationCodes.VERB_NOT_ALLOWED, `Verb '${verb}' is explicitly disallowed`);
-    }
+  if (Object.keys(verbs).length === 0) {
+    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' denied: no verbs defined in credential (fail-closed)`);
+  }
+  const policy = verbs[verb];
+  if (!policy) {
+    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' not in credential core_verbs`);
+  }
+  if (policy.allowed === false) {
+    return fail(id, name, violationCodes.VERB_NOT_ALLOWED, `Verb '${verb}' is explicitly disallowed`);
   }
   return pass(id, name, `Verb '${verb}' authorized (stateless)`);
 }
@@ -559,7 +612,9 @@ function narrowScope(parent: Scope, restriction: Record<string, unknown>): Scope
   return result;
 }
 
-function selectMode(cred: PoACredentialInput, requestedMode?: EnforcementMode): EnforcementMode {
+const READ_ONLY_VERBS = new Set(["read", "list", "search", "query", "analyze", "plan"]);
+
+function selectMode(cred: PoACredentialInput, requestedMode?: EnforcementMode, actionVerb?: string): EnforcementMode {
   const profile = cred.governance_profile as GovernanceProfile;
   if ((governanceProfileValues as readonly string[]).includes(profile)) {
     const ceiling = CEILING_TABLE[profile];
@@ -570,11 +625,12 @@ function selectMode(cred: PoACredentialInput, requestedMode?: EnforcementMode): 
 
   if (requestedMode === "stateful") return "stateful";
 
+  const isReadOnly = actionVerb ? READ_ONLY_VERBS.has(actionVerb) : false;
   const hasNoBudgetImpact = cred.budget_total_cents === 0;
   const isAutonomous = cred.approval_mode === "autonomous";
   const noDelegation = !cred.delegation_chain || cred.delegation_chain.length === 0;
 
-  if (hasNoBudgetImpact && isAutonomous && noDelegation) {
+  if (isReadOnly && hasNoBudgetImpact && isAutonomous && noDelegation) {
     return requestedMode ?? "stateless";
   }
 
@@ -615,12 +671,46 @@ async function fetchLiveMandateData(mandateId: string): Promise<LiveMandateData>
 }
 
 export async function enforceAction(req: EnforcementRequest): Promise<EnforcementDecision> {
+  try {
+    return await enforceActionInternal(req);
+  } catch (err) {
+    return {
+      request_id: req.request_id,
+      decision: "DENY",
+      checks: [
+        fail("CHK-XX", "Internal Error", violationCodes.INTERNAL_ERROR,
+          `Unexpected error during enforcement (fail-closed): ${err instanceof Error ? err.message : "unknown"}`),
+      ],
+      enforced_constraints: [],
+      violations: [{
+        check_id: "CHK-XX",
+        violation_code: violationCodes.INTERNAL_ERROR,
+        message: `Unexpected error during enforcement (fail-closed): ${err instanceof Error ? err.message : "unknown"}`,
+      }],
+      effective_scope: undefined,
+      audit: {
+        request_id: req.request_id,
+        credential_ref: req.credential?.jti || req.credential?.mandate_id || "unknown",
+        enforcement_mode: "stateful",
+        pep_interface_version: PEP_INTERFACE_VERSION,
+        processing_time_ms: 0,
+        decision: "DENY",
+        checks_run: 1,
+        checks_passed: 0,
+        checks_failed: 1,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+}
+
+async function enforceActionInternal(req: EnforcementRequest): Promise<EnforcementDecision> {
   const startTime = Date.now();
   const cred = req.credential;
   const action = req.action;
   const ctx = req.context;
 
-  const mode = selectMode(cred, ctx.enforcement_mode);
+  const mode = selectMode(cred, ctx.enforcement_mode, action.verb);
   const isStateful = mode === "stateful";
 
   let liveData: LiveMandateData | null = null;
@@ -672,7 +762,7 @@ export async function enforceAction(req: EnforcementRequest): Promise<Enforcemen
 
   checks.push(chk01CredentialValidation(cred));
   checks.push(chk02TemporalValidity(cred, ctx, isStateful, liveData?.status));
-  checks.push(chk03GovernanceProfile(cred));
+  checks.push(chk03GovernanceProfile(cred, action));
   checks.push(chk04Phase(cred, action));
   checks.push(chk05Sector(originalScope, ctx));
   checks.push(chk06Region(originalScope, ctx));
