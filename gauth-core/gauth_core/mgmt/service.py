@@ -418,7 +418,7 @@ class MandateManagementService:
             raise ManagementError(ManagementErrorCode.MANDATE_NOT_FOUND, f"Mandate {mandate_id} not found")
         if mandate["status"] != MandateStatus.DRAFT.value:
             raise ManagementError(ManagementErrorCode.MANDATE_NOT_DRAFT, "Only DRAFT mandates can be deleted")
-        self._repo.update_status(mandate_id, "DELETED")
+        self._repo.update_status(mandate_id, MandateStatus.DELETED.value)
         return {"mandate_id": mandate_id, "deleted": True}
 
     def create_delegation(

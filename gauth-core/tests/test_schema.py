@@ -132,5 +132,5 @@ class TestEnums:
         assert GovernanceProfile.BEHOERDE.value == "behoerde"
 
     def test_mandate_statuses(self):
-        assert len(MandateStatus) == 7
+        assert len(MandateStatus) == 8
         assert MandateStatus.BUDGET_EXCEEDED.value == "BUDGET_EXCEEDED"

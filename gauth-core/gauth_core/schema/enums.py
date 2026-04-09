@@ -19,6 +19,7 @@ class MandateStatus(str, Enum):
     REVOKED = "REVOKED"
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
     SUPERSEDED = "SUPERSEDED"
+    DELETED = "DELETED"
 
 
 TERMINAL_STATUSES = frozenset({
@@ -26,6 +27,7 @@ TERMINAL_STATUSES = frozenset({
     MandateStatus.REVOKED,
     MandateStatus.BUDGET_EXCEEDED,
     MandateStatus.SUPERSEDED,
+    MandateStatus.DELETED,
 })
 
 

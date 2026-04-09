@@ -50,8 +50,8 @@ def chk_01_credential(credential: dict[str, Any], **_: Any) -> dict[str, Any]:
     if not checksum:
         return _check_result(
             "CHK-01", "Credential Validation", False,
-            CheckSeverity.WARNING, "CREDENTIAL_CHECKSUM_MISSING",
-            "scope_checksum is empty",
+            CheckSeverity.ERROR, "CREDENTIAL_CHECKSUM_MISSING",
+            "scope_checksum is empty — fail-closed per integrity policy",
         )
     return _check_result("CHK-01", "Credential Validation", True, message="Credential structure valid")
 

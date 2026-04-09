@@ -201,7 +201,7 @@ class SQLAlchemyMandateRepository(MandateRepository):
             rows = session.execute(query).scalars().all()
 
             results = [self._mandate_to_dict(r) for r in rows]
-            next_cursor = results[-1]["mandate_id"] if len(results) == limit and len(results) < total else None
+            next_cursor = results[-1]["mandate_id"] if len(results) == limit else None
 
             return results, next_cursor, total
 
