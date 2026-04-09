@@ -84,7 +84,7 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - **Python**: 3.10+
 - **Core dependency**: Pydantic v2
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
-- **License**: Apache 2.0
+- **License**: MPL 2.0 (see Python SDK note below)
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
 - **Tests**: 130 tests across 6 test modules
 
@@ -119,5 +119,16 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 - `cd gauth-core && python -m pytest tests/ -v` — run GAuth SDK test suite
+
+## License
+
+- **License**: Mozilla Public License 2.0 (MPL 2.0) with Gimel Foundation Additional Terms
+- **License file**: `LICENSE`
+- **Open Core scope**: Python SDK, TypeScript Management API, database schemas, PEP engine, governance profiles
+- **Excluded Components** (proprietary licensing required):
+  1. AI-Enabled Governance — ML/AI-augmented policy, risk scoring, anomaly detection
+  2. Web3 Integration — blockchain, DLT, DID, token-gated access
+  3. DNA-Based Identities & PQC — biometric identity via genomic data, post-quantum cryptographic schemes
+- **Contributor note**: contributions to Open Core components are MPL 2.0; Excluded Components require a separate CLA with Gimel Foundation
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
