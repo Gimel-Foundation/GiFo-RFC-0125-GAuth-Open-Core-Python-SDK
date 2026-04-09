@@ -682,4 +682,5 @@ export const GetDelegationChainResponse = zod.object({
       budget_reserved_cents: zod.number(),
     }),
   ),
+  effective_scope: zod.record(zod.string(), zod.unknown()),
 });

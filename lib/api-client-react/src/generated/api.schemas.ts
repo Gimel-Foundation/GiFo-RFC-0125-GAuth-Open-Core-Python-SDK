@@ -348,9 +348,12 @@ export interface DelegationChainEntry {
   budget_reserved_cents: number;
 }
 
+export type DelegationChainResponseEffectiveScope = { [key: string]: unknown };
+
 export interface DelegationChainResponse {
   mandate_id: string;
   chain: DelegationChainEntry[];
+  effective_scope: DelegationChainResponseEffectiveScope;
 }
 
 export interface ProfileInfo {

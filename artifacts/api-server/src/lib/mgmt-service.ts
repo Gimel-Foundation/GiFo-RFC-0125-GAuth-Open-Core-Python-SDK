@@ -84,42 +84,65 @@ async function getOrThrow(mandateId: string): Promise<Mandate> {
   return rows[0];
 }
 
+interface TxDb {
+  select: typeof db.select;
+  insert: typeof db.insert;
+  update: typeof db.update;
+  delete: typeof db.delete;
+}
+
+async function txAuditLog(
+  txDb: TxDb,
+  mandateId: string,
+  operationType: OperationType,
+  callerIdentity: string,
+  detail?: Record<string, unknown>,
+) {
+  await txDb.insert(auditLogsTable).values({
+    mandateId,
+    operationType,
+    callerIdentity,
+    detail: detail ?? {},
+  });
+}
+
 async function cascadeStatusToChildren(
+  txDb: TxDb,
   parentMandateId: string,
   newStatus: "REVOKED" | "SUSPENDED",
 ) {
-  const children = await db
+  const children = await txDb
     .select()
     .from(delegationsTable)
     .where(eq(delegationsTable.parentMandateId, parentMandateId));
 
   for (const child of children) {
-    const childMandate = await db
+    const childMandate = await txDb
       .select()
       .from(mandatesTable)
       .where(eq(mandatesTable.mandateId, child.childMandateId))
       .limit(1);
     if (childMandate.length > 0 && (childMandate[0].status === "ACTIVE" || childMandate[0].status === "SUSPENDED")) {
-      await db
+      await txDb
         .update(mandatesTable)
         .set({ status: newStatus, updatedAt: new Date() })
         .where(eq(mandatesTable.mandateId, child.childMandateId));
-      await auditLog(child.childMandateId, newStatus === "REVOKED" ? "REVOKE" : "SUSPEND", "system", {
+      await txAuditLog(txDb, child.childMandateId, newStatus === "REVOKED" ? "REVOKE" : "SUSPEND", "system", {
         reason: `Cascaded from parent ${parentMandateId}`,
       });
-      await cascadeStatusToChildren(child.childMandateId, newStatus);
+      await cascadeStatusToChildren(txDb, child.childMandateId, newStatus);
     }
   }
 }
 
-async function cascadeResumeToChildren(parentMandateId: string) {
-  const children = await db
+async function cascadeResumeToChildren(txDb: TxDb, parentMandateId: string) {
+  const children = await txDb
     .select()
     .from(delegationsTable)
     .where(eq(delegationsTable.parentMandateId, parentMandateId));
 
   for (const child of children) {
-    const childMandate = await db
+    const childMandate = await txDb
       .select()
       .from(mandatesTable)
       .where(eq(mandatesTable.mandateId, child.childMandateId))
@@ -127,22 +150,22 @@ async function cascadeResumeToChildren(parentMandateId: string) {
     if (childMandate.length > 0 && childMandate[0].status === "SUSPENDED") {
       const now = new Date();
       if (childMandate[0].expiresAt && childMandate[0].expiresAt <= now) {
-        await db
+        await txDb
           .update(mandatesTable)
           .set({ status: "EXPIRED", updatedAt: now })
           .where(eq(mandatesTable.mandateId, child.childMandateId));
-        await auditLog(child.childMandateId, "RESUME", "system", {
+        await txAuditLog(txDb, child.childMandateId, "RESUME", "system", {
           reason: "Expired during suspension",
         });
       } else {
-        await db
+        await txDb
           .update(mandatesTable)
           .set({ status: "ACTIVE", updatedAt: now })
           .where(eq(mandatesTable.mandateId, child.childMandateId));
-        await auditLog(child.childMandateId, "RESUME", "system", {
+        await txAuditLog(txDb, child.childMandateId, "RESUME", "system", {
           reason: `Cascaded resume from parent ${parentMandateId}`,
         });
-        await cascadeResumeToChildren(child.childMandateId);
+        await cascadeResumeToChildren(txDb, child.childMandateId);
       }
     }
   }
@@ -319,22 +342,10 @@ export async function getMandateHistory(mandateId: string) {
 }
 
 export async function activateMandate(mandateId: string, caller: string) {
-  const m = await getOrThrow(mandateId);
-  if (m.status !== "DRAFT") {
-    throw new ManagementError("MANDATE_NOT_DRAFT", "Only DRAFT mandates can be activated");
-  }
-
-  const revalidation = validateMandate({
-    parties: m.parties,
-    scope: m.scope,
-    requirements: m.requirements,
-  });
-  if (!revalidation.accepted) {
-    throw new ManagementError("SCHEMA_VALIDATION_FAILED", "Re-validation failed on activation");
-  }
+  await getOrThrow(mandateId);
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + m.ttlSeconds * 1000);
+  let expiresAt: Date;
 
   const client = await pool.connect();
   try {
@@ -345,6 +356,28 @@ export async function activateMandate(mandateId: string, caller: string) {
       `SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`,
       [mandateId],
     );
+
+    const locked = await txDb
+      .select()
+      .from(mandatesTable)
+      .where(eq(mandatesTable.mandateId, mandateId))
+      .limit(1);
+    const m = locked[0];
+
+    if (m.status !== "DRAFT") {
+      throw new ManagementError("MANDATE_NOT_DRAFT", "Only DRAFT mandates can be activated");
+    }
+
+    const revalidation = validateMandate({
+      parties: m.parties,
+      scope: m.scope,
+      requirements: m.requirements,
+    });
+    if (!revalidation.accepted) {
+      throw new ManagementError("SCHEMA_VALIDATION_FAILED", "Re-validation failed on activation");
+    }
+
+    expiresAt = new Date(now.getTime() + m.ttlSeconds * 1000);
 
     const existingActive = await txDb
       .select({ mandateId: mandatesTable.mandateId })
@@ -413,21 +446,33 @@ export async function activateMandate(mandateId: string, caller: string) {
 }
 
 export async function revokeMandate(mandateId: string, reason: string, caller: string) {
-  const m = await getOrThrow(mandateId);
-  if (m.status !== "ACTIVE" && m.status !== "SUSPENDED") {
-    throw new ManagementError(
-      "INVALID_STATE_TRANSITION",
-      `Cannot revoke mandate in status ${m.status}`,
-    );
-  }
+  await getOrThrow(mandateId);
 
   const now = new Date();
-  await db
-    .update(mandatesTable)
-    .set({ status: "REVOKED", updatedAt: now })
-    .where(eq(mandatesTable.mandateId, mandateId));
-  await auditLog(mandateId, "REVOKE", caller, { reason });
-  await cascadeStatusToChildren(mandateId, "REVOKED");
+  const client = await pool.connect();
+  try {
+    const txDb = drizzle(client);
+    await client.query("BEGIN");
+
+    await client.query(`SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`, [mandateId]);
+    const locked = await txDb.select().from(mandatesTable).where(eq(mandatesTable.mandateId, mandateId)).limit(1);
+    const m = locked[0];
+
+    if (m.status !== "ACTIVE" && m.status !== "SUSPENDED") {
+      throw new ManagementError("INVALID_STATE_TRANSITION", `Cannot revoke mandate in status ${m.status}`);
+    }
+
+    await txDb.update(mandatesTable).set({ status: "REVOKED", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
+    await txAuditLog(txDb, mandateId, "REVOKE", caller, { reason });
+    await cascadeStatusToChildren(txDb, mandateId, "REVOKED");
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return {
     mandate_id: mandateId,
@@ -438,18 +483,33 @@ export async function revokeMandate(mandateId: string, reason: string, caller: s
 }
 
 export async function suspendMandate(mandateId: string, reason: string, caller: string) {
-  const m = await getOrThrow(mandateId);
-  if (m.status !== "ACTIVE") {
-    throw new ManagementError("MANDATE_NOT_ACTIVE", "Only ACTIVE mandates can be suspended");
-  }
+  await getOrThrow(mandateId);
 
   const now = new Date();
-  await db
-    .update(mandatesTable)
-    .set({ status: "SUSPENDED", updatedAt: now })
-    .where(eq(mandatesTable.mandateId, mandateId));
-  await auditLog(mandateId, "SUSPEND", caller, { reason });
-  await cascadeStatusToChildren(mandateId, "SUSPENDED");
+  const client = await pool.connect();
+  try {
+    const txDb = drizzle(client);
+    await client.query("BEGIN");
+
+    await client.query(`SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`, [mandateId]);
+    const locked = await txDb.select().from(mandatesTable).where(eq(mandatesTable.mandateId, mandateId)).limit(1);
+    const m = locked[0];
+
+    if (m.status !== "ACTIVE") {
+      throw new ManagementError("MANDATE_NOT_ACTIVE", "Only ACTIVE mandates can be suspended");
+    }
+
+    await txDb.update(mandatesTable).set({ status: "SUSPENDED", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
+    await txAuditLog(txDb, mandateId, "SUSPEND", caller, { reason });
+    await cascadeStatusToChildren(txDb, mandateId, "SUSPENDED");
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return {
     mandate_id: mandateId,
@@ -460,27 +520,43 @@ export async function suspendMandate(mandateId: string, reason: string, caller: 
 }
 
 export async function resumeMandate(mandateId: string, caller: string) {
-  const m = await getOrThrow(mandateId);
-  if (m.status !== "SUSPENDED") {
-    throw new ManagementError("MANDATE_NOT_SUSPENDED", "Only SUSPENDED mandates can be resumed");
-  }
+  await getOrThrow(mandateId);
 
   const now = new Date();
-  if (m.expiresAt && m.expiresAt <= now) {
-    await db
-      .update(mandatesTable)
-      .set({ status: "EXPIRED", updatedAt: now })
-      .where(eq(mandatesTable.mandateId, mandateId));
-    await auditLog(mandateId, "RESUME", caller, { reason: "Expired during suspension" });
-    throw new ManagementError("MANDATE_EXPIRED", "Mandate expired during suspension");
-  }
+  const client = await pool.connect();
+  try {
+    const txDb = drizzle(client);
+    await client.query("BEGIN");
 
-  await db
-    .update(mandatesTable)
-    .set({ status: "ACTIVE", updatedAt: now })
-    .where(eq(mandatesTable.mandateId, mandateId));
-  await auditLog(mandateId, "RESUME", caller);
-  await cascadeResumeToChildren(mandateId);
+    await client.query(`SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`, [mandateId]);
+    const locked = await txDb.select().from(mandatesTable).where(eq(mandatesTable.mandateId, mandateId)).limit(1);
+    const m = locked[0];
+
+    if (m.status !== "SUSPENDED") {
+      throw new ManagementError("MANDATE_NOT_SUSPENDED", "Only SUSPENDED mandates can be resumed");
+    }
+
+    if (m.expiresAt && m.expiresAt <= now) {
+      await txDb.update(mandatesTable).set({ status: "EXPIRED", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
+      await txAuditLog(txDb, mandateId, "RESUME", caller, { reason: "Expired during suspension" });
+      await client.query("COMMIT");
+      throw new ManagementError("MANDATE_EXPIRED", "Mandate expired during suspension");
+    }
+
+    await txDb.update(mandatesTable).set({ status: "ACTIVE", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
+    await txAuditLog(txDb, mandateId, "RESUME", caller);
+    await cascadeResumeToChildren(txDb, mandateId);
+
+    await client.query("COMMIT");
+  } catch (err) {
+    if (err instanceof ManagementError && err.code === "MANDATE_EXPIRED") {
+      throw err;
+    }
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 
   return {
     mandate_id: mandateId,
@@ -980,6 +1056,58 @@ export async function createDelegation(
   }
 }
 
+function computeEffectiveScope(
+  chain: Array<{ scope: Record<string, unknown> }>,
+): Record<string, unknown> {
+  if (chain.length === 0) return {};
+  if (chain.length === 1) return { ...chain[0].scope };
+
+  let effective = { ...chain[0].scope };
+  for (let i = 1; i < chain.length; i++) {
+    const childScope = chain[i].scope;
+    const merged: Record<string, unknown> = { ...effective };
+
+    const listKeys = new Set([
+      "allowed_paths", "allowed_sectors", "allowed_regions",
+      "allowed_transactions", "allowed_decisions", "active_modules",
+    ]);
+
+    for (const key of Object.keys(childScope)) {
+      if (listKeys.has(key) && Array.isArray(childScope[key]) && Array.isArray(effective[key])) {
+        const parentSet = new Set(effective[key] as string[]);
+        merged[key] = (childScope[key] as string[]).filter((v: string) => parentSet.has(v));
+      } else if (key === "platform_permissions" && typeof childScope[key] === "object" && typeof effective[key] === "object") {
+        const parentPerms = (effective[key] ?? {}) as Record<string, unknown>;
+        const childPerms = (childScope[key] ?? {}) as Record<string, unknown>;
+        const intersected: Record<string, unknown> = {};
+        for (const pk of Object.keys(parentPerms)) {
+          if (pk in childPerms) {
+            const pv = parentPerms[pk];
+            const cv = childPerms[pk];
+            if (typeof pv === "boolean" && typeof cv === "boolean") {
+              intersected[pk] = pv && cv;
+            } else if (Array.isArray(pv) && Array.isArray(cv)) {
+              const pSet = new Set(pv as string[]);
+              intersected[pk] = (cv as string[]).filter((v: string) => pSet.has(v));
+            } else {
+              intersected[pk] = cv;
+            }
+          } else {
+            intersected[pk] = parentPerms[pk];
+          }
+        }
+        merged[key] = intersected;
+      } else {
+        merged[key] = childScope[key];
+      }
+    }
+
+    effective = merged;
+  }
+
+  return effective;
+}
+
 export async function getDelegationChain(mandateId: string) {
   await getOrThrow(mandateId);
 
@@ -1024,7 +1152,9 @@ export async function getDelegationChain(mandateId: string) {
     currentId = m[0].parentMandateId;
   }
 
-  return { mandate_id: mandateId, chain };
+  const effective_scope = computeEffectiveScope(chain);
+
+  return { mandate_id: mandateId, chain, effective_scope };
 }
 
 export function listProfiles() {

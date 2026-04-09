@@ -6,8 +6,10 @@
  * OpenAPI spec version: 1.1.0
  */
 import type { DelegationChainEntry } from "./delegationChainEntry";
+import type { DelegationChainResponseEffectiveScope } from "./delegationChainResponseEffectiveScope";
 
 export interface DelegationChainResponse {
   mandate_id: string;
   chain: DelegationChainEntry[];
+  effective_scope: DelegationChainResponseEffectiveScope;
 }

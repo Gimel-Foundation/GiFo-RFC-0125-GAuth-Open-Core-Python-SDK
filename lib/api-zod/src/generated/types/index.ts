@@ -23,6 +23,7 @@ export * from "./creationResponseStatus";
 export * from "./delegationChainEntry";
 export * from "./delegationChainEntryScope";
 export * from "./delegationChainResponse";
+export * from "./delegationChainResponseEffectiveScope";
 export * from "./delegationCreationRequest";
 export * from "./delegationCreationRequestScopeRestriction";
 export * from "./delegationResponse";
