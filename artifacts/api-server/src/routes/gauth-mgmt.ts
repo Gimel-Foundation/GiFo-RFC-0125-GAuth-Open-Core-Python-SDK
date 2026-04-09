@@ -11,6 +11,8 @@ import {
   consumptionReportSchema,
   ttlExtensionRequestSchema,
   delegationRequestSchema,
+  mandateStatusValues,
+  governanceProfileValues,
 } from "@workspace/db";
 import * as mgmt from "../lib/mgmt-service";
 
@@ -138,12 +140,24 @@ router.post(
 router.get(
   "/mandates",
   asyncHandler(async (req, res) => {
+    const statusParam = req.query.status as string | undefined;
+    if (statusParam && !(mandateStatusValues as readonly string[]).includes(statusParam)) {
+      throw new ManagementError("SCHEMA_VALIDATION_FAILED", `Invalid status filter: ${statusParam}. Must be one of: ${mandateStatusValues.join(", ")}`);
+    }
+    const profileParam = req.query.governance_profile as string | undefined;
+    if (profileParam && !(governanceProfileValues as readonly string[]).includes(profileParam)) {
+      throw new ManagementError("SCHEMA_VALIDATION_FAILED", `Invalid governance_profile filter: ${profileParam}. Must be one of: ${governanceProfileValues.join(", ")}`);
+    }
+    const cursorParam = req.query.cursor as string | undefined;
+    if (cursorParam && !UUID_RE.test(cursorParam)) {
+      throw new ManagementError("SCHEMA_VALIDATION_FAILED", `Invalid cursor: must be a valid UUID`);
+    }
     const result = await mgmt.listMandates({
-      status: req.query.status as string | undefined,
+      status: statusParam,
       agent_id: req.query.agent_id as string | undefined,
       project_id: req.query.project_id as string | undefined,
-      governance_profile: req.query.governance_profile as string | undefined,
-      cursor: req.query.cursor as string | undefined,
+      governance_profile: profileParam,
+      cursor: cursorParam,
       limit: req.query.limit ? (() => {
         const n = parseInt(req.query.limit as string, 10);
         if (isNaN(n) || n < 1 || n > 100) {

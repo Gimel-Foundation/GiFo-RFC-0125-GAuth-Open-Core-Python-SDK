@@ -690,16 +690,24 @@ export async function consumeBudget(
         description: description || null,
       });
     } catch (insertErr: unknown) {
-      if (
-        insertErr instanceof Error &&
-        insertErr.message.includes("duplicate key")
-      ) {
+      const pgCode = (insertErr as Record<string, unknown>)?.code;
+      if (pgCode === "23505") {
         await client.query("ROLLBACK");
+        const existing = await db
+          .select()
+          .from(budgetConsumptionTable)
+          .where(
+            and(
+              eq(budgetConsumptionTable.mandateId, mandateId),
+              eq(budgetConsumptionTable.enforcementRequestId, enforcementRequestId),
+            ),
+          )
+          .limit(1);
         const currentM = await getOrThrow(mandateId);
         return {
           mandate_id: mandateId,
           enforcement_request_id: enforcementRequestId,
-          amount_cents: amountCents,
+          amount_cents: existing.length > 0 ? existing[0].amountCents : amountCents,
           budget: {
             total_cents: currentM.budgetTotalCents,
             remaining_cents: currentM.budgetRemainingCents,
