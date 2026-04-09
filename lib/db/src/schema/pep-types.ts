@@ -24,6 +24,7 @@ export const enforcementContextSchema = z.object({
   tool_call_count: z.number().int().min(0).default(0),
   lines_changed: z.number().int().min(0).default(0),
   budget_impact_cents: z.number().int().min(0).default(0),
+  session_duration_minutes: z.number().min(0).default(0),
   sector: z.string().optional(),
   region: z.string().optional(),
   decision_type: z.string().optional(),

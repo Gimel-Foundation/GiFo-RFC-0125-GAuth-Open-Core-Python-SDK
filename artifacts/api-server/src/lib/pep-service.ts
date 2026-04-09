@@ -448,6 +448,10 @@ function chk14SessionLimits(cred: PoACredentialInput, ctx: EnforcementContext, i
   const limits = isStateful && liveLimits ? liveLimits : cred.session_limits;
   const constraints: string[] = [];
 
+  if (limits.max_session_duration_minutes !== null && ctx.session_duration_minutes > limits.max_session_duration_minutes) {
+    return fail(id, name, violationCodes.SESSION_DURATION_EXCEEDED, `Session duration ${ctx.session_duration_minutes}m exceeds limit ${limits.max_session_duration_minutes}m`);
+  }
+
   if (limits.max_tool_calls !== null && ctx.tool_call_count >= limits.max_tool_calls) {
     return fail(id, name, violationCodes.SESSION_TOOL_CALLS_EXCEEDED, `Tool call count ${ctx.tool_call_count} >= limit ${limits.max_tool_calls}`);
   }
@@ -456,6 +460,9 @@ function chk14SessionLimits(cred: PoACredentialInput, ctx: EnforcementContext, i
     return fail(id, name, violationCodes.SESSION_LINES_EXCEEDED, `Lines changed ${ctx.lines_changed} > limit ${limits.max_lines_per_commit}`);
   }
 
+  if (limits.max_session_duration_minutes !== null) {
+    constraints.push(`duration: ${ctx.session_duration_minutes}/${limits.max_session_duration_minutes}m`);
+  }
   if (limits.max_tool_calls !== null) {
     constraints.push(`tool_calls: ${ctx.tool_call_count}/${limits.max_tool_calls}`);
   }
@@ -463,7 +470,7 @@ function chk14SessionLimits(cred: PoACredentialInput, ctx: EnforcementContext, i
   return pass(id, name, constraints.length > 0 ? `Session limits OK: ${constraints.join(", ")}` : "No session limits configured");
 }
 
-function chk15Approval(cred: PoACredentialInput, action: EnforcementAction, ctx: EnforcementContext, isStateful: boolean): { result: CheckResult; constraints: EnforcedConstraint[] } {
+function chk15Approval(cred: PoACredentialInput, action: EnforcementAction, ctx: EnforcementContext, isStateful: boolean, liveScope?: Scope): { result: CheckResult; constraints: EnforcedConstraint[] } {
   const id = "CHK-15";
   const name = "Approval Verification";
   const constraints: EnforcedConstraint[] = [];
@@ -480,7 +487,8 @@ function chk15Approval(cred: PoACredentialInput, action: EnforcementAction, ctx:
     return { result: pass(id, name, "Autonomous approval mode"), constraints };
   }
 
-  const verbs = cred.core_verbs as Record<string, Record<string, unknown>>;
+  const verbSource = isStateful && liveScope ? liveScope.core_verbs : cred.core_verbs;
+  const verbs = verbSource as Record<string, Record<string, unknown>>;
   const policy = verbs[action.verb] as Record<string, unknown> | undefined;
   const verbRequiresApproval = policy?.requires_approval === true;
 
@@ -643,24 +651,27 @@ function narrowScope(parent: Scope, restriction: Record<string, unknown>): Scope
 
 const READ_ONLY_VERBS = new Set(["read", "list", "search", "query", "analyze", "plan"]);
 
+function isStatefulOnlyProfile(profile: string): boolean {
+  if (!(governanceProfileValues as readonly string[]).includes(profile)) {
+    return true;
+  }
+  const ceiling = CEILING_TABLE[profile as GovernanceProfile];
+  return ceiling.minApprovalMode === "four-eyes" || !ceiling.agentDelegation;
+}
+
 function selectMode(cred: PoACredentialInput, requestedMode?: EnforcementMode, actionVerb?: string): EnforcementMode {
-  const profile = cred.governance_profile as GovernanceProfile;
-  if ((governanceProfileValues as readonly string[]).includes(profile)) {
-    const ceiling = CEILING_TABLE[profile];
-    if (ceiling.minApprovalMode === "four-eyes" || !ceiling.agentDelegation) {
-      return "stateful";
-    }
+  if (isStatefulOnlyProfile(cred.governance_profile)) {
+    return "stateful";
   }
 
   if (requestedMode === "stateful") return "stateful";
 
   const isReadOnly = actionVerb ? READ_ONLY_VERBS.has(actionVerb) : false;
-  const hasNoBudgetImpact = cred.budget_total_cents === 0;
+  const hasNoBudget = cred.budget_total_cents === 0;
   const isAutonomous = cred.approval_mode === "autonomous";
-  const noDelegation = !cred.delegation_chain || cred.delegation_chain.length === 0;
 
-  if (isReadOnly && hasNoBudgetImpact && isAutonomous && noDelegation) {
-    return requestedMode ?? "stateless";
+  if (isReadOnly && hasNoBudget && isAutonomous) {
+    return "stateless";
   }
 
   return "stateful";
@@ -808,7 +819,7 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
   checks.push(chk13Budget(cred, ctx, isStateful, liveData?.budgetRemainingCents));
   checks.push(chk14SessionLimits(cred, ctx, isStateful, liveData?.sessionLimits));
 
-  const chk15Result = chk15Approval(cred, action, ctx, isStateful);
+  const chk15Result = chk15Approval(cred, action, ctx, isStateful, liveData?.scope);
   checks.push(chk15Result.result);
   allConstraints.push(...chk15Result.constraints);
 
