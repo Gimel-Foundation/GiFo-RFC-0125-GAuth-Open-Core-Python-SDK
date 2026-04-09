@@ -206,6 +206,93 @@ export function validateConsistency(
   return errors;
 }
 
+export interface DelegationNarrowingError {
+  field: string;
+  message: string;
+  code: string;
+}
+
+export function validateDelegationScopeNarrowing(
+  parentScope: Record<string, unknown>,
+  childScope: Record<string, unknown>,
+): DelegationNarrowingError[] {
+  const errors: DelegationNarrowingError[] = [];
+
+  const listFields = [
+    "allowed_paths",
+    "allowed_sectors",
+    "allowed_regions",
+    "allowed_transactions",
+    "allowed_decisions",
+  ];
+  for (const field of listFields) {
+    const parentList = new Set((parentScope[field] as string[] | undefined) ?? []);
+    const childList = (childScope[field] as string[] | undefined) ?? [];
+    if (parentList.size > 0) {
+      for (const item of childList) {
+        if (!parentList.has(item)) {
+          errors.push({
+            field,
+            message: `Child scope widens '${field}': '${item}' not in parent`,
+            code: "DELEGATION_SCOPE_WIDENING",
+          });
+        }
+      }
+    }
+  }
+
+  const parentVerbs = (parentScope.core_verbs ?? {}) as Record<string, Record<string, unknown>>;
+  const childVerbs = (childScope.core_verbs ?? {}) as Record<string, Record<string, unknown>>;
+  for (const [verb, childPolicy] of Object.entries(childVerbs)) {
+    if (!(verb in parentVerbs)) {
+      errors.push({
+        field: "core_verbs",
+        message: `Child scope adds verb '${verb}' not present in parent`,
+        code: "DELEGATION_SCOPE_WIDENING",
+      });
+      continue;
+    }
+    const parentPolicy = parentVerbs[verb];
+    if (
+      typeof parentPolicy === "object" && parentPolicy !== null &&
+      typeof childPolicy === "object" && childPolicy !== null
+    ) {
+      if (parentPolicy.allowed === false && childPolicy.allowed === true) {
+        errors.push({
+          field: "core_verbs",
+          message: `Child scope re-enables disallowed verb '${verb}'`,
+          code: "DELEGATION_SCOPE_WIDENING",
+        });
+      }
+      if (parentPolicy.requires_approval === true && childPolicy.requires_approval === false) {
+        errors.push({
+          field: "core_verbs",
+          message: `Child scope removes approval requirement for verb '${verb}'`,
+          code: "DELEGATION_SCOPE_WIDENING",
+        });
+      }
+    }
+  }
+
+  const parentPlatform = (parentScope.platform_permissions ?? {}) as Record<string, unknown>;
+  const childPlatform = (childScope.platform_permissions ?? {}) as Record<string, unknown>;
+  const boolPermissions = [
+    "auto_deploy", "db_write", "db_migration", "db_production",
+    "secrets_read", "secrets_create",
+  ];
+  for (const perm of boolPermissions) {
+    if (parentPlatform[perm] === false && childPlatform[perm] === true) {
+      errors.push({
+        field: `platform_permissions.${perm}`,
+        message: `Child scope enables '${perm}' which parent disallows`,
+        code: "DELEGATION_SCOPE_WIDENING",
+      });
+    }
+  }
+
+  return errors;
+}
+
 export function validateMandate(data: unknown): ValidationResult {
   const result: ValidationResult = {
     accepted: true,

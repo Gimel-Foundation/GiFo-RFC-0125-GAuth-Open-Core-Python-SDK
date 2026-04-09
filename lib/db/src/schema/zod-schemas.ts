@@ -212,7 +212,8 @@ export type ResumptionResponse = z.infer<typeof resumptionResponseSchema>;
 export const budgetIncreaseResponseSchema = z.object({
   mandate_id: z.string(),
   budget: budgetDetailSchema,
-  increased_by: z.number().int(),
+  additional_cents: z.number().int(),
+  increased_by: z.string(),
 });
 export type BudgetIncreaseResponse = z.infer<typeof budgetIncreaseResponseSchema>;
 
@@ -228,7 +229,8 @@ export const ttlExtensionResponseSchema = z.object({
   mandate_id: z.string(),
   ttl_seconds: z.number().int(),
   expires_at: z.string(),
-  extended_by: z.number().int(),
+  additional_seconds: z.number().int(),
+  extended_by: z.string(),
 });
 export type TTLExtensionResponse = z.infer<typeof ttlExtensionResponseSchema>;
 
@@ -331,6 +333,18 @@ export const validationResultResponseSchema = z.object({
   consistency_errors: z.array(consistencyErrorSchema),
 });
 export type ValidationResultResponse = z.infer<typeof validationResultResponseSchema>;
+
+export const creationResponseSchema = z.object({
+  mandate_id: z.string(),
+  status: z.literal("DRAFT"),
+  governance_profile: governanceProfileSchema,
+  scope_checksum: z.string(),
+  tool_permissions_hash: z.string(),
+  platform_permissions_hash: z.string(),
+  created_at: z.string(),
+  validation: validationResultResponseSchema,
+});
+export type CreationResponse = z.infer<typeof creationResponseSchema>;
 
 export const paginatedResponseSchema = z.object({
   items: z.array(mandateResponseSchema),
