@@ -110,6 +110,44 @@ class TestConsistencyChecks:
         )
         assert errors == []
 
+    def test_c5_verb_policy_contradiction(self):
+        errors = validate_consistency(
+            {"core_verbs": {"shell.execute": {"allowed": False, "requires_approval": True}}},
+            {"approval_mode": "autonomous", "budget": {"total_cents": 100}, "ttl_seconds": 120},
+            {},
+        )
+        assert any(e["rule"] == "C-5" for e in errors)
+
+    def test_c5_no_contradiction(self):
+        errors = validate_consistency(
+            {"core_verbs": {"file.read": {"allowed": True, "requires_approval": False}}},
+            {"approval_mode": "autonomous", "budget": {"total_cents": 100}, "ttl_seconds": 120},
+            {},
+        )
+        assert not any(e["rule"] == "C-5" for e in errors)
+
+    def test_c6_platform_profile_mismatch(self):
+        errors = validate_consistency(
+            {
+                "governance_profile": "enterprise",
+                "platform_permissions": {"db_production": True},
+            },
+            {"approval_mode": "supervised", "budget": {"total_cents": 100}, "ttl_seconds": 120},
+            {},
+        )
+        assert any(e["rule"] == "C-6" for e in errors)
+
+    def test_c6_no_mismatch(self):
+        errors = validate_consistency(
+            {
+                "governance_profile": "minimal",
+                "platform_permissions": {"db_production": True},
+            },
+            {"approval_mode": "autonomous", "budget": {"total_cents": 100}, "ttl_seconds": 120},
+            {},
+        )
+        assert not any(e["rule"] == "C-6" for e in errors)
+
 
 class TestFullPipeline:
     def test_valid_mandate(self):

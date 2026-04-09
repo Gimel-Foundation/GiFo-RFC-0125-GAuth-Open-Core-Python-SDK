@@ -139,10 +139,51 @@ class PEPEngine:
             mode = self._select_mode(credential, action)
 
         live_mandate = None
-        if mode == EnforcementMode.STATEFUL and self._repo:
+        stateful_mandate_missing = False
+        if mode == EnforcementMode.STATEFUL:
             mandate_id = credential.get("mandate_id", "")
-            if mandate_id:
+            if not self._repo:
+                stateful_mandate_missing = True
+            elif mandate_id:
                 live_mandate = self._repo.get(mandate_id)
+                if live_mandate is None:
+                    stateful_mandate_missing = True
+            else:
+                stateful_mandate_missing = True
+
+        if stateful_mandate_missing:
+            return {
+                "request_id": request_id,
+                "decision": Decision.DENY.value,
+                "checks": [{
+                    "check_id": "CHK-00",
+                    "check_name": "Stateful Mandate Lookup",
+                    "result": "fail",
+                    "severity": CheckSeverity.ERROR.value,
+                    "violation_code": "STATEFUL_MANDATE_NOT_FOUND",
+                    "message": "Stateful enforcement requires a valid live mandate but none was found",
+                    "details": {"mandate_id": credential.get("mandate_id", "")},
+                }],
+                "enforced_constraints": [],
+                "violations": [{
+                    "check_id": "CHK-00",
+                    "check_name": "Stateful Mandate Lookup",
+                    "result": "fail",
+                    "severity": CheckSeverity.ERROR.value,
+                    "violation_code": "STATEFUL_MANDATE_NOT_FOUND",
+                    "message": "Stateful enforcement requires a valid live mandate but none was found",
+                    "details": {"mandate_id": credential.get("mandate_id", "")},
+                }],
+                "audit": {
+                    "request_id": request_id,
+                    "credential_ref": credential.get("mandate_id", ""),
+                    "enforcement_mode": mode.value,
+                    "processing_time_ms": round((time.monotonic() - start_time) * 1000, 2),
+                    "pep_interface_version": "1.1",
+                    "timestamp": now.isoformat(),
+                    "checks_evaluated": 1,
+                },
+            }
 
         enrichment = {}
         try:

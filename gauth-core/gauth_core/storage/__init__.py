@@ -7,3 +7,9 @@ __all__ = [
     "MandateRepository",
     "InMemoryMandateRepository",
 ]
+
+try:
+    from gauth_core.storage.sqlalchemy import SQLAlchemyMandateRepository
+    __all__.append("SQLAlchemyMandateRepository")
+except ImportError:
+    pass

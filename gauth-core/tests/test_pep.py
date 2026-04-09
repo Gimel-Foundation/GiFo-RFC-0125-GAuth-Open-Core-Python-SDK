@@ -159,7 +159,20 @@ class TestDenyDecision:
 
 
 class TestConstrainDecision:
-    def test_approval_required_becomes_constrain(self, engine):
+    def test_approval_required_becomes_constrain(self):
+        repo = InMemoryMandateRepository()
+        repo.create({
+            "mandate_id": "mdt_test123",
+            "status": "ACTIVE",
+            "parties": {"subject": "agent_1", "customer_id": "c", "project_id": "p", "issued_by": "u"},
+            "scope": {
+                "governance_profile": "standard",
+                "core_verbs": {"file.write": {"allowed": True, "requires_approval": True}},
+            },
+            "requirements": {},
+            "budget_state": {"total_cents": 10000, "remaining_cents": 5000, "consumed_cents": 5000},
+        })
+        engine = PEPEngine(repository=repo)
         cred = _valid_credential(
             approval_mode="supervised",
             core_verbs={
@@ -232,6 +245,39 @@ class TestDelegationTwoPass:
             credential=cred,
             action=_action(),
             context=_context(),
+        )
+        assert result["decision"] == "DENY"
+
+
+class TestFailClosed:
+    def test_stateful_no_repo_denies(self):
+        engine = PEPEngine(repository=None)
+        result = engine.enforce_action(
+            credential=_valid_credential(),
+            action=_action(),
+            context=_context(enforcement_mode="stateful"),
+        )
+        assert result["decision"] == "DENY"
+        assert any(v["violation_code"] == "STATEFUL_MANDATE_NOT_FOUND" for v in result["violations"])
+
+    def test_stateful_missing_mandate_denies(self):
+        repo = InMemoryMandateRepository()
+        engine = PEPEngine(repository=repo)
+        result = engine.enforce_action(
+            credential=_valid_credential(mandate_id="mdt_nonexistent"),
+            action=_action(),
+            context=_context(enforcement_mode="stateful"),
+        )
+        assert result["decision"] == "DENY"
+        assert any(v["violation_code"] == "STATEFUL_MANDATE_NOT_FOUND" for v in result["violations"])
+
+    def test_stateful_empty_mandate_id_denies(self):
+        repo = InMemoryMandateRepository()
+        engine = PEPEngine(repository=repo)
+        result = engine.enforce_action(
+            credential=_valid_credential(mandate_id=""),
+            action=_action(),
+            context=_context(enforcement_mode="stateful"),
         )
         assert result["decision"] == "DENY"
 

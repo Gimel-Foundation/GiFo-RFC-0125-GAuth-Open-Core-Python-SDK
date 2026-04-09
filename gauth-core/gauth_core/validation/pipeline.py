@@ -104,6 +104,38 @@ def validate_consistency(
             "code": "TTL_TOO_SHORT",
         })
 
+    core_verbs = scope.get("core_verbs", {})
+    if core_verbs:
+        for verb, policy in core_verbs.items():
+            if isinstance(policy, dict):
+                if not policy.get("allowed", True) and policy.get("requires_approval", False):
+                    errors.append({
+                        "rule": "C-5",
+                        "message": f"Verb '{verb}' is disallowed but also requires approval — contradictory",
+                        "code": "VERB_POLICY_CONTRADICTION",
+                    })
+
+    platform_perms = scope.get("platform_permissions", {})
+    governance_profile = scope.get("governance_profile", "")
+    if governance_profile and platform_perms:
+        try:
+            profile_enum = GovernanceProfile(governance_profile)
+            ceiling = get_ceiling(profile_enum)
+            if platform_perms.get("db_production", False) and not ceiling.db_production:
+                errors.append({
+                    "rule": "C-6",
+                    "message": f"db_production access requested but profile '{governance_profile}' forbids it",
+                    "code": "PLATFORM_PROFILE_MISMATCH",
+                })
+            if platform_perms.get("db_migration", False) and not ceiling.db_migration:
+                errors.append({
+                    "rule": "C-6",
+                    "message": f"db_migration access requested but profile '{governance_profile}' forbids it",
+                    "code": "PLATFORM_PROFILE_MISMATCH",
+                })
+        except ValueError:
+            pass
+
     return errors
 
 

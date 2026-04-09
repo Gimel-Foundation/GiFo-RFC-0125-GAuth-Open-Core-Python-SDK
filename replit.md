@@ -26,7 +26,7 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: Apache 2.0
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 104 tests across 6 test modules
+- **Tests**: 115 tests across 6 test modules
 
 ### Submodules (9 total)
 
@@ -35,8 +35,8 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 | `schema/` | Pydantic v2 models, enums, error codes (RFC 0116) |
 | `profiles/` | 5 governance profiles, ceiling table (14 attributes each) |
 | `utils/` | SHA-256 canonical JSON checksums |
-| `validation/` | 3-stage pipeline (schema, ceiling, consistency C-1..C-4) |
-| `storage/` | Abstract repository + InMemory implementation |
+| `validation/` | 3-stage pipeline (schema, ceiling, consistency C-1..C-6) |
+| `storage/` | Abstract repository + InMemory + SQLAlchemy implementations |
 | `adapters/` | Protected adapter system (4 slots, trust validation) |
 | `mgmt/` | Mandate lifecycle service (RFC 0118) |
 | `pep/` | 16-check enforcement engine, two-pass delegation (RFC 0117) |
