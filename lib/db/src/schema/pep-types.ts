@@ -181,6 +181,7 @@ export const violationCodes = {
   DELEGATION_SCOPE_WIDENED: "V-026",
   DELEGATION_EXPIRED: "V-027",
   UNKNOWN_PROFILE: "V-028",
+  STATEFUL_FETCH_FAILED: "V-030",
   INTERNAL_ERROR: "V-099",
 } as const;
 export type ViolationCode = (typeof violationCodes)[keyof typeof violationCodes];

@@ -271,15 +271,12 @@ function chk08Verb(scope: Scope, action: EnforcementAction, isStateful: boolean,
     return pass(id, name, `Verb '${verb}' is authorized`);
   }
 
-  if (cred.tool_permissions_hash) {
-    if (liveToolHash && cred.tool_permissions_hash !== liveToolHash) {
-      return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, "Tool permissions hash mismatch (stale credential)");
-    }
-    return pass(id, name, `Verb '${verb}' authorized via tool_permissions_hash (stateless)`);
+  if (cred.tool_permissions_hash && liveToolHash && cred.tool_permissions_hash !== liveToolHash) {
+    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, "Tool permissions hash mismatch (stale credential)");
   }
   const verbs = scope.core_verbs as Record<string, Record<string, unknown>>;
   if (Object.keys(verbs).length === 0) {
-    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' denied: no verbs defined and no tool_permissions_hash (fail-closed)`);
+    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' denied: no verbs defined in credential (fail-closed)`);
   }
   const policy = verbs[verb];
   if (!policy) {
@@ -288,7 +285,7 @@ function chk08Verb(scope: Scope, action: EnforcementAction, isStateful: boolean,
   if (policy.allowed === false) {
     return fail(id, name, violationCodes.VERB_NOT_ALLOWED, `Verb '${verb}' is explicitly disallowed`);
   }
-  return pass(id, name, `Verb '${verb}' authorized (stateless, no hash)`);
+  return pass(id, name, `Verb '${verb}' authorized (stateless${cred.tool_permissions_hash ? ", hash verified" : ""})`);
 }
 
 function chk09Constraints(scope: Scope, action: EnforcementAction, isStateful: boolean): { result: CheckResult; constraints: EnforcedConstraint[] } {
@@ -710,22 +707,41 @@ async function fetchLiveMandateData(mandateId: string): Promise<LiveMandateData>
   };
 }
 
+const ALL_CHECK_IDS = [
+  { id: "CHK-01", name: "Credential Structure Validation" },
+  { id: "CHK-02", name: "Temporal & Status Validity" },
+  { id: "CHK-03", name: "Governance Profile Ceiling" },
+  { id: "CHK-04", name: "Phase Match" },
+  { id: "CHK-05", name: "Sector Allowlist" },
+  { id: "CHK-06", name: "Region Allowlist" },
+  { id: "CHK-07", name: "Path Evaluation" },
+  { id: "CHK-08", name: "Verb Authorization" },
+  { id: "CHK-09", name: "Verb Constraints" },
+  { id: "CHK-10", name: "Platform Permissions" },
+  { id: "CHK-11", name: "Transaction Matrix" },
+  { id: "CHK-12", name: "Decision Type Allowlist" },
+  { id: "CHK-13", name: "Budget Check" },
+  { id: "CHK-14", name: "Session Limits" },
+  { id: "CHK-15", name: "Approval Verification" },
+  { id: "CHK-16", name: "Delegation Chain Validation" },
+];
+
 export async function enforceAction(req: EnforcementRequest): Promise<EnforcementDecision> {
   try {
     return await enforceActionInternal(req);
   } catch (err) {
+    const errMsg = `Unexpected error during enforcement (fail-closed): ${err instanceof Error ? err.message : "unknown"}`;
+    const internalFail = fail("CHK-XX", "Internal Error", violationCodes.INTERNAL_ERROR, errMsg);
+    const skippedChecks = ALL_CHECK_IDS.map(c => skip(c.id, c.name, "Skipped due to internal error"));
     return {
       request_id: req.request_id,
       decision: "DENY",
-      checks: [
-        fail("CHK-XX", "Internal Error", violationCodes.INTERNAL_ERROR,
-          `Unexpected error during enforcement (fail-closed): ${err instanceof Error ? err.message : "unknown"}`),
-      ],
+      checks: [internalFail, ...skippedChecks],
       enforced_constraints: [],
       violations: [{
         check_id: "CHK-XX",
         violation_code: violationCodes.INTERNAL_ERROR,
-        message: `Unexpected error during enforcement (fail-closed): ${err instanceof Error ? err.message : "unknown"}`,
+        message: errMsg,
       }],
       effective_scope: undefined,
       audit: {
@@ -735,7 +751,7 @@ export async function enforceAction(req: EnforcementRequest): Promise<Enforcemen
         pep_interface_version: PEP_INTERFACE_VERSION,
         processing_time_ms: 0,
         decision: "DENY",
-        checks_run: 1,
+        checks_run: 17,
         checks_passed: 0,
         checks_failed: 1,
         timestamp: new Date().toISOString(),
@@ -764,39 +780,13 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
     if (!liveData) liveFetchFailed = true;
   }
 
-  if (isStateful && liveFetchFailed) {
-    const processingTimeMs = Date.now() - startTime;
-    return {
-      request_id: req.request_id,
-      decision: "DENY" as const,
-      checks: [
-        fail("CHK-00", "Live Mandate Fetch", violationCodes.CREDENTIAL_INVALID,
-          "Stateful enforcement requires live mandate data but lookup failed (fail-closed)"),
-      ],
-      enforced_constraints: [],
-      violations: [{
-        check_id: "CHK-00",
-        violation_code: violationCodes.CREDENTIAL_INVALID,
-        message: "Stateful enforcement requires live mandate data but lookup failed (fail-closed)",
-      }],
-      effective_scope: undefined,
-      audit: {
-        request_id: req.request_id,
-        credential_ref: cred.jti || cred.mandate_id,
-        enforcement_mode: mode,
-        pep_interface_version: PEP_INTERFACE_VERSION,
-        processing_time_ms: processingTimeMs,
-        decision: "DENY" as const,
-        checks_run: 1,
-        checks_passed: 0,
-        checks_failed: 1,
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
   const checks: CheckResult[] = [];
   const allConstraints: EnforcedConstraint[] = [];
+
+  if (isStateful && liveFetchFailed) {
+    checks.push(fail("CHK-00", "Live Mandate Fetch", violationCodes.STATEFUL_FETCH_FAILED,
+      "Stateful enforcement requires live mandate data but lookup failed (fail-closed)"));
+  }
 
   const originalScope = liveData ? liveData.scope : extractScope(cred);
 
