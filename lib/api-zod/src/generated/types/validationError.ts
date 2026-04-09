@@ -6,6 +6,8 @@
  * OpenAPI spec version: 1.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface ValidationError {
+  path?: string;
+  error?: string;
+  code?: string;
 }

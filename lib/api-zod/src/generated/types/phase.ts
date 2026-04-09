@@ -6,6 +6,10 @@
  * OpenAPI spec version: 1.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-}
+export type Phase = (typeof Phase)[keyof typeof Phase];
+
+export const Phase = {
+  plan: "plan",
+  build: "build",
+  run: "run",
+} as const;

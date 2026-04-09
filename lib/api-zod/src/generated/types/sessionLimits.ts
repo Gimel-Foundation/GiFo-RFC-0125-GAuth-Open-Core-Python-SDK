@@ -6,6 +6,8 @@
  * OpenAPI spec version: 1.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface SessionLimits {
+  max_tool_calls?: number | null;
+  max_session_duration_minutes?: number | null;
+  max_lines_per_commit?: number | null;
 }

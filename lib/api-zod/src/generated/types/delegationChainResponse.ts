@@ -5,7 +5,9 @@
  * GAuth Management API — RFC 0118 §11.1 mandate lifecycle management
  * OpenAPI spec version: 1.1.0
  */
+import type { DelegationChainEntry } from "./delegationChainEntry";
 
-export interface HealthStatus {
-  status: string;
+export interface DelegationChainResponse {
+  mandate_id: string;
+  chain: DelegationChainEntry[];
 }

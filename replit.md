@@ -46,8 +46,8 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - **Location**: `artifacts/api-server/src/routes/gauth-mgmt.ts` (routes), `artifacts/api-server/src/lib/mgmt-service.ts` (service layer)
 - **Base path**: `/api/gauth/mgmt/v1/`
 - **17 endpoints**: mandate CRUD, status transitions, budget ops, TTL extension, delegation, profiles, health
-- **Transactional safety**: activation (supersession), budget consumption, and delegation use explicit PostgreSQL transactions
-- **Idempotent consumption**: duplicate `enforcement_request_id` returns current budget state (no double deduction)
+- **Transactional safety**: activation (supersession), budget consumption, and delegation use explicit PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking for concurrency safety
+- **Idempotent consumption**: duplicate `(mandate_id, enforcement_request_id)` composite key returns current budget state (no double deduction)
 - **Cascade**: revocation/suspension propagates synchronously to all child delegations
 - **TTL ceiling validation**: extensions validated against governance profile `maxSessionDurationMinutes`
 - **Error handling**: ManagementError → structured JSON responses with correct HTTP status codes

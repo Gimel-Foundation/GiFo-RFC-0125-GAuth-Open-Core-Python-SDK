@@ -6,6 +6,10 @@
  * OpenAPI spec version: 1.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-}
+export type ConsumeBudgetBody = {
+  /** @minLength 1 */
+  enforcement_request_id: string;
+  /** @minimum 1 */
+  amount_cents: number;
+  description?: string;
+};

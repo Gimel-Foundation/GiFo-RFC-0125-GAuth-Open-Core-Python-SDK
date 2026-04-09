@@ -340,6 +340,11 @@ export async function activateMandate(mandateId: string, caller: string) {
     const txDb = drizzle(client);
     await client.query("BEGIN");
 
+    await client.query(
+      `SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`,
+      [mandateId],
+    );
+
     const existingActive = await txDb
       .select({ mandateId: mandatesTable.mandateId })
       .from(mandatesTable)
@@ -350,6 +355,14 @@ export async function activateMandate(mandateId: string, caller: string) {
           eq(mandatesTable.status, "ACTIVE"),
         ),
       );
+
+    if (existingActive.length > 0) {
+      const activeIds = existingActive.map((a) => a.mandateId);
+      await client.query(
+        `SELECT * FROM mandates WHERE mandate_id = ANY($1) FOR UPDATE`,
+        [activeIds],
+      );
+    }
 
     for (const active of existingActive) {
       await txDb
@@ -524,7 +537,12 @@ export async function consumeBudget(
   const existing = await db
     .select()
     .from(budgetConsumptionTable)
-    .where(eq(budgetConsumptionTable.enforcementRequestId, enforcementRequestId))
+    .where(
+      and(
+        eq(budgetConsumptionTable.enforcementRequestId, enforcementRequestId),
+        eq(budgetConsumptionTable.mandateId, mandateId),
+      ),
+    )
     .limit(1);
 
   if (existing.length > 0) {
@@ -551,14 +569,18 @@ export async function consumeBudget(
     const txDb = drizzle(client);
     await client.query("BEGIN");
 
+    const lockResult = await client.query(
+      `SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`,
+      [mandateId],
+    );
+    if (lockResult.rows.length === 0) {
+      throw new ManagementError("MANDATE_NOT_FOUND", `Mandate ${mandateId} not found`);
+    }
     const rows = await txDb
       .select()
       .from(mandatesTable)
       .where(eq(mandatesTable.mandateId, mandateId))
       .limit(1);
-    if (rows.length === 0) {
-      throw new ManagementError("MANDATE_NOT_FOUND", `Mandate ${mandateId} not found`);
-    }
     const m = rows[0];
 
     if (m.status !== "ACTIVE") {
@@ -840,11 +862,31 @@ export async function createDelegation(
     const txDb = drizzle(client);
     await client.query("BEGIN");
 
+    await client.query(
+      `SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`,
+      [parentMandateId],
+    );
+
+    const freshParent = await txDb
+      .select()
+      .from(mandatesTable)
+      .where(eq(mandatesTable.mandateId, parentMandateId))
+      .limit(1);
+    if (freshParent.length === 0 || freshParent[0].status !== "ACTIVE") {
+      throw new ManagementError("PARENT_MANDATE_NOT_ACTIVE", "Parent mandate must be ACTIVE");
+    }
+    if (budgetCents > freshParent[0].budgetRemainingCents) {
+      throw new ManagementError(
+        "DELEGATION_BUDGET_EXCEEDED",
+        `Requested ${budgetCents} exceeds parent remaining ${freshParent[0].budgetRemainingCents}`,
+      );
+    }
+
     await txDb
       .update(mandatesTable)
       .set({
-        budgetRemainingCents: parent.budgetRemainingCents - budgetCents,
-        reservedForDelegationsCents: parent.reservedForDelegationsCents + budgetCents,
+        budgetRemainingCents: freshParent[0].budgetRemainingCents - budgetCents,
+        reservedForDelegationsCents: freshParent[0].reservedForDelegationsCents + budgetCents,
         updatedAt: now,
       })
       .where(eq(mandatesTable.mandateId, parentMandateId));

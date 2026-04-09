@@ -5,7 +5,10 @@
  * GAuth Management API — RFC 0118 §11.1 mandate lifecycle management
  * OpenAPI spec version: 1.1.0
  */
+import type { MandateResponse } from "./mandateResponse";
 
-export interface HealthStatus {
-  status: string;
+export interface PaginatedMandateResponse {
+  items: MandateResponse[];
+  next_cursor: string | null;
+  total: number;
 }

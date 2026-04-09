@@ -104,7 +104,8 @@ export const budgetConsumptionTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("budget_consumption_enforcement_req_idx").on(
+    uniqueIndex("budget_consumption_mandate_enf_req_idx").on(
+      table.mandateId,
       table.enforcementRequestId,
     ),
   ],

@@ -6,6 +6,10 @@
  * OpenAPI spec version: 1.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface TTLExtensionResponse {
+  mandate_id: string;
+  ttl_seconds: number;
+  expires_at: Date;
+  additional_seconds: number;
+  extended_by: string;
 }

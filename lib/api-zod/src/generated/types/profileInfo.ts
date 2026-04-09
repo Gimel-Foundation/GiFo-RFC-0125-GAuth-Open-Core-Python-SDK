@@ -5,7 +5,10 @@
  * GAuth Management API — RFC 0118 §11.1 mandate lifecycle management
  * OpenAPI spec version: 1.1.0
  */
+import type { GovernanceProfile } from "./governanceProfile";
 
-export interface HealthStatus {
-  status: string;
+export interface ProfileInfo {
+  name: GovernanceProfile;
+  description: string;
+  registration_context: string;
 }

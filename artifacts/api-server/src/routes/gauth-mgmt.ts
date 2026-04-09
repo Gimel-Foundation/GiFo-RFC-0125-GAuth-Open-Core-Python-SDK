@@ -1,12 +1,19 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { ManagementError } from "@workspace/db";
+import {
+  ManagementError,
+  mandateCreationRequestSchema,
+  mandateRevocationRequestSchema,
+  mandateSuspensionRequestSchema,
+  mandateResumptionRequestSchema,
+  mandateActivationRequestSchema,
+  budgetIncreaseRequestSchema,
+  consumptionReportSchema,
+  ttlExtensionRequestSchema,
+  delegationRequestSchema,
+} from "@workspace/db";
 import * as mgmt from "../lib/mgmt-service";
 
 const router = Router();
-
-function getCaller(req: Request): string {
-  return (req.headers["x-caller-identity"] as string) || "anonymous";
-}
 
 function param(req: Request, name: string): string {
   const v = req.params[name];
@@ -21,9 +28,60 @@ function asyncHandler(
   };
 }
 
+function requireAuth(req: Request, _res: Response, next: NextFunction) {
+  const identity = req.headers["x-caller-identity"];
+  if (!identity || (typeof identity === "string" && identity.trim() === "")) {
+    next(
+      new ManagementError(
+        "INSUFFICIENT_AUTHORITY",
+        "X-Caller-Identity header is required for management operations",
+      ),
+    );
+    return;
+  }
+  next();
+}
+
+function getCaller(req: Request): string {
+  return req.headers["x-caller-identity"] as string;
+}
+
+function zodParse(
+  schema: { safeParse: (data: unknown) => { success: boolean; data?: unknown; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } } },
+  data: unknown,
+) {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    const messages = result.error!.issues
+      .map((i) => `${i.path.map(String).join(".")}: ${i.message}`)
+      .join("; ");
+    throw new ManagementError("SCHEMA_VALIDATION_FAILED", messages);
+  }
+  return result.data as Record<string, unknown>;
+}
+
+router.get("/health", (_req, res) => {
+  res.json(mgmt.getHealthInfo());
+});
+
+router.get("/profiles", (_req, res) => {
+  res.json(mgmt.listProfiles());
+});
+
+router.get(
+  "/profiles/:profile/ceilings",
+  asyncHandler(async (req, res) => {
+    const result = mgmt.getProfileCeilings(param(req, "profile"));
+    res.json(result);
+  }),
+);
+
+router.use(requireAuth);
+
 router.post(
   "/mandates",
   asyncHandler(async (req, res) => {
+    zodParse(mandateCreationRequestSchema, req.body);
     const result = await mgmt.createMandate(req.body, getCaller(req));
     res.status(201).json(result);
   }),
@@ -71,6 +129,10 @@ router.get(
 router.post(
   "/mandates/:id/activate",
   asyncHandler(async (req, res) => {
+    zodParse(mandateActivationRequestSchema, {
+      mandate_id: param(req, "id"),
+      activated_by: getCaller(req),
+    });
     const result = await mgmt.activateMandate(param(req, "id"), getCaller(req));
     res.json(result);
   }),
@@ -79,8 +141,12 @@ router.post(
 router.post(
   "/mandates/:id/revoke",
   asyncHandler(async (req, res) => {
-    const reason = (req.body?.reason as string) ?? "";
-    const result = await mgmt.revokeMandate(param(req, "id"), reason, getCaller(req));
+    const parsed = zodParse(mandateRevocationRequestSchema, {
+      mandate_id: param(req, "id"),
+      reason: req.body?.reason ?? "",
+      revoked_by: getCaller(req),
+    });
+    const result = await mgmt.revokeMandate(param(req, "id"), parsed.reason as string, getCaller(req));
     res.json(result);
   }),
 );
@@ -88,8 +154,12 @@ router.post(
 router.post(
   "/mandates/:id/suspend",
   asyncHandler(async (req, res) => {
-    const reason = (req.body?.reason as string) ?? "";
-    const result = await mgmt.suspendMandate(param(req, "id"), reason, getCaller(req));
+    const parsed = zodParse(mandateSuspensionRequestSchema, {
+      mandate_id: param(req, "id"),
+      reason: req.body?.reason ?? "",
+      suspended_by: getCaller(req),
+    });
+    const result = await mgmt.suspendMandate(param(req, "id"), parsed.reason as string, getCaller(req));
     res.json(result);
   }),
 );
@@ -97,6 +167,10 @@ router.post(
 router.post(
   "/mandates/:id/resume",
   asyncHandler(async (req, res) => {
+    zodParse(mandateResumptionRequestSchema, {
+      mandate_id: param(req, "id"),
+      resumed_by: getCaller(req),
+    });
     const result = await mgmt.resumeMandate(param(req, "id"), getCaller(req));
     res.json(result);
   }),
@@ -105,11 +179,16 @@ router.post(
 router.post(
   "/mandates/:id/budget/increase",
   asyncHandler(async (req, res) => {
-    const { additional_cents } = req.body;
-    if (typeof additional_cents !== "number" || additional_cents <= 0) {
-      throw new ManagementError("SCHEMA_VALIDATION_FAILED", "additional_cents must be a positive integer");
-    }
-    const result = await mgmt.increaseBudget(param(req, "id"), additional_cents, getCaller(req));
+    const parsed = zodParse(budgetIncreaseRequestSchema, {
+      mandate_id: param(req, "id"),
+      additional_cents: req.body?.additional_cents,
+      increased_by: getCaller(req),
+    });
+    const result = await mgmt.increaseBudget(
+      param(req, "id"),
+      parsed.additional_cents as number,
+      getCaller(req),
+    );
     res.json(result);
   }),
 );
@@ -117,18 +196,17 @@ router.post(
 router.post(
   "/mandates/:id/budget/consume",
   asyncHandler(async (req, res) => {
-    const { enforcement_request_id, amount_cents, description } = req.body;
-    if (!enforcement_request_id || typeof amount_cents !== "number" || amount_cents <= 0) {
-      throw new ManagementError(
-        "SCHEMA_VALIDATION_FAILED",
-        "enforcement_request_id and positive amount_cents are required",
-      );
-    }
+    const parsed = zodParse(consumptionReportSchema, {
+      mandate_id: param(req, "id"),
+      enforcement_request_id: req.body?.enforcement_request_id,
+      amount_cents: req.body?.amount_cents,
+      description: req.body?.description ?? "",
+    });
     const result = await mgmt.consumeBudget(
       param(req, "id"),
-      enforcement_request_id,
-      amount_cents,
-      description ?? "",
+      parsed.enforcement_request_id as string,
+      parsed.amount_cents as number,
+      parsed.description as string,
     );
     res.json(result);
   }),
@@ -145,11 +223,16 @@ router.get(
 router.post(
   "/mandates/:id/ttl/extend",
   asyncHandler(async (req, res) => {
-    const { additional_seconds } = req.body;
-    if (typeof additional_seconds !== "number" || additional_seconds <= 0) {
-      throw new ManagementError("SCHEMA_VALIDATION_FAILED", "additional_seconds must be a positive integer");
-    }
-    const result = await mgmt.extendTtl(param(req, "id"), additional_seconds, getCaller(req));
+    const parsed = zodParse(ttlExtensionRequestSchema, {
+      mandate_id: param(req, "id"),
+      additional_seconds: req.body?.additional_seconds,
+      extended_by: getCaller(req),
+    });
+    const result = await mgmt.extendTtl(
+      param(req, "id"),
+      parsed.additional_seconds as number,
+      getCaller(req),
+    );
     res.json(result);
   }),
 );
@@ -157,27 +240,20 @@ router.post(
 router.post(
   "/delegations",
   asyncHandler(async (req, res) => {
-    const {
-      parent_mandate_id,
-      delegate_agent_id,
-      scope_restriction,
-      budget_cents,
-      ttl_seconds,
-    } = req.body;
-
-    if (!parent_mandate_id || !delegate_agent_id) {
-      throw new ManagementError(
-        "SCHEMA_VALIDATION_FAILED",
-        "parent_mandate_id and delegate_agent_id are required",
-      );
-    }
-
+    const parsed = zodParse(delegationRequestSchema, {
+      parent_mandate_id: req.body?.parent_mandate_id,
+      delegate_agent_id: req.body?.delegate_agent_id,
+      scope_restriction: req.body?.scope_restriction ?? {},
+      budget_cents: req.body?.budget_cents,
+      ttl_seconds: req.body?.ttl_seconds,
+      delegated_by: getCaller(req),
+    });
     const result = await mgmt.createDelegation(
-      parent_mandate_id,
-      delegate_agent_id,
-      scope_restriction ?? {},
-      budget_cents ?? 0,
-      ttl_seconds ?? 3600,
+      parsed.parent_mandate_id as string,
+      parsed.delegate_agent_id as string,
+      (parsed.scope_restriction ?? {}) as Record<string, unknown>,
+      parsed.budget_cents as number,
+      parsed.ttl_seconds as number,
       getCaller(req),
     );
     res.status(201).json(result);
@@ -191,22 +267,6 @@ router.get(
     res.json(result);
   }),
 );
-
-router.get("/profiles", (_req, res) => {
-  res.json(mgmt.listProfiles());
-});
-
-router.get(
-  "/profiles/:profile/ceilings",
-  asyncHandler(async (req, res) => {
-    const result = mgmt.getProfileCeilings(param(req, "profile"));
-    res.json(result);
-  }),
-);
-
-router.get("/health", (_req, res) => {
-  res.json(mgmt.getHealthInfo());
-});
 
 router.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ManagementError) {

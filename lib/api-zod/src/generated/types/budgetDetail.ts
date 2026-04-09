@@ -6,6 +6,10 @@
  * OpenAPI spec version: 1.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface BudgetDetail {
+  total_cents: number;
+  remaining_cents: number;
+  consumed_cents: number;
+  utilization_percent: number;
+  reserved_for_delegations_cents: number;
 }
