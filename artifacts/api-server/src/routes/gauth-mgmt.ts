@@ -42,7 +42,8 @@ function asyncHandler(
 }
 
 function requireAuth(req: Request, _res: Response, next: NextFunction) {
-  const authHeader = req.headers["authorization"];
+  const rawAuth = req.headers["authorization"];
+  const authHeader = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     next(
       new ManagementError(
@@ -79,8 +80,9 @@ function requireAuth(req: Request, _res: Response, next: NextFunction) {
     return;
   }
 
-  const identity = req.headers["x-caller-identity"];
-  if (!identity || (typeof identity === "string" && identity.trim() === "")) {
+  const rawIdentity = req.headers["x-caller-identity"];
+  const identity = Array.isArray(rawIdentity) ? rawIdentity[0] : rawIdentity;
+  if (!identity || identity.trim() === "") {
     next(
       new ManagementError(
         "INSUFFICIENT_AUTHORITY",
@@ -93,7 +95,8 @@ function requireAuth(req: Request, _res: Response, next: NextFunction) {
 }
 
 function getCaller(req: Request): string {
-  return req.headers["x-caller-identity"] as string;
+  const raw = req.headers["x-caller-identity"];
+  return (Array.isArray(raw) ? raw[0] : raw) as string;
 }
 
 function zodParse(

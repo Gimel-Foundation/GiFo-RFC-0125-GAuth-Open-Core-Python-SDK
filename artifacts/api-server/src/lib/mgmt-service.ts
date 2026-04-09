@@ -593,39 +593,59 @@ export async function increaseBudget(
   additionalCents: number,
   caller: string,
 ) {
-  const m = await getOrThrow(mandateId);
-  if (m.status !== "ACTIVE" && m.status !== "SUSPENDED") {
+  const preCheck = await getOrThrow(mandateId);
+  if (preCheck.status !== "ACTIVE" && preCheck.status !== "SUSPENDED") {
     throw new ManagementError("MANDATE_NOT_ACTIVE", "Budget can only be increased on ACTIVE or SUSPENDED mandates");
   }
 
-  const newTotal = m.budgetTotalCents + additionalCents;
-  const newRemaining = m.budgetRemainingCents + additionalCents;
+  const client = await pool.connect();
+  try {
+    const txDb = drizzle(client);
+    await client.query("BEGIN");
+    await client.query(`SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`, [mandateId]);
 
-  await db
-    .update(mandatesTable)
-    .set({
-      budgetTotalCents: newTotal,
-      budgetRemainingCents: newRemaining,
-      updatedAt: new Date(),
-    })
-    .where(eq(mandatesTable.mandateId, mandateId));
-  await auditLog(mandateId, "BUDGET_INCREASE", caller, { additional_cents: additionalCents });
+    const rows = await txDb.select().from(mandatesTable).where(eq(mandatesTable.mandateId, mandateId)).limit(1);
+    const m = rows[0];
+    if (!m || (m.status !== "ACTIVE" && m.status !== "SUSPENDED")) {
+      throw new ManagementError("MANDATE_NOT_ACTIVE", "Budget can only be increased on ACTIVE or SUSPENDED mandates");
+    }
 
-  return {
-    mandate_id: mandateId,
-    budget: {
-      total_cents: newTotal,
-      remaining_cents: newRemaining,
-      consumed_cents: m.budgetConsumedCents,
-      utilization_percent:
-        newTotal > 0
-          ? Math.round((m.budgetConsumedCents / newTotal) * 10000) / 100
-          : 0,
-      reserved_for_delegations_cents: m.reservedForDelegationsCents,
-    },
-    additional_cents: additionalCents,
-    increased_by: caller,
-  };
+    const newTotal = m.budgetTotalCents + additionalCents;
+    const newRemaining = m.budgetRemainingCents + additionalCents;
+
+    await txDb
+      .update(mandatesTable)
+      .set({
+        budgetTotalCents: newTotal,
+        budgetRemainingCents: newRemaining,
+        updatedAt: new Date(),
+      })
+      .where(eq(mandatesTable.mandateId, mandateId));
+    await txAuditLog(txDb, mandateId, "BUDGET_INCREASE", caller, { additional_cents: additionalCents });
+
+    await client.query("COMMIT");
+
+    return {
+      mandate_id: mandateId,
+      budget: {
+        total_cents: newTotal,
+        remaining_cents: newRemaining,
+        consumed_cents: m.budgetConsumedCents,
+        utilization_percent:
+          newTotal > 0
+            ? Math.round((m.budgetConsumedCents / newTotal) * 10000) / 100
+            : 0,
+        reserved_for_delegations_cents: m.reservedForDelegationsCents,
+      },
+      additional_cents: additionalCents,
+      increased_by: caller,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    rethrowDbConstraint(err);
+  } finally {
+    client.release();
+  }
 }
 
 export async function consumeBudget(
@@ -808,45 +828,65 @@ export async function extendTtl(
   additionalSeconds: number,
   caller: string,
 ) {
-  const m = await getOrThrow(mandateId);
-  if (m.status !== "ACTIVE" && m.status !== "SUSPENDED") {
+  const preCheck = await getOrThrow(mandateId);
+  if (preCheck.status !== "ACTIVE" && preCheck.status !== "SUSPENDED") {
     throw new ManagementError("MANDATE_NOT_ACTIVE", "TTL can only be extended on ACTIVE or SUSPENDED mandates");
   }
 
-  const newTtl = m.ttlSeconds + additionalSeconds;
+  const client = await pool.connect();
+  try {
+    const txDb = drizzle(client);
+    await client.query("BEGIN");
+    await client.query(`SELECT * FROM mandates WHERE mandate_id = $1 FOR UPDATE`, [mandateId]);
 
-  const ceiling = getCeiling(m.governanceProfile);
-  if (ceiling.maxSessionDurationMinutes !== null) {
-    const maxTtlSeconds = ceiling.maxSessionDurationMinutes * 60;
-    if (newTtl > maxTtlSeconds) {
-      throw new ManagementError(
-        "CEILING_VIOLATION",
-        `Extended TTL ${newTtl}s exceeds profile ceiling ${maxTtlSeconds}s (${ceiling.maxSessionDurationMinutes} min)`,
-      );
+    const rows = await txDb.select().from(mandatesTable).where(eq(mandatesTable.mandateId, mandateId)).limit(1);
+    const m = rows[0];
+    if (!m || (m.status !== "ACTIVE" && m.status !== "SUSPENDED")) {
+      throw new ManagementError("MANDATE_NOT_ACTIVE", "TTL can only be extended on ACTIVE or SUSPENDED mandates");
     }
+
+    const newTtl = m.ttlSeconds + additionalSeconds;
+
+    const ceiling = getCeiling(m.governanceProfile);
+    if (ceiling.maxSessionDurationMinutes !== null) {
+      const maxTtlSeconds = ceiling.maxSessionDurationMinutes * 60;
+      if (newTtl > maxTtlSeconds) {
+        throw new ManagementError(
+          "CEILING_VIOLATION",
+          `Extended TTL ${newTtl}s exceeds profile ceiling ${maxTtlSeconds}s (${ceiling.maxSessionDurationMinutes} min)`,
+        );
+      }
+    }
+
+    const newExpiresAt = m.expiresAt
+      ? new Date(m.expiresAt.getTime() + additionalSeconds * 1000)
+      : null;
+
+    await txDb
+      .update(mandatesTable)
+      .set({
+        ttlSeconds: newTtl,
+        expiresAt: newExpiresAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(mandatesTable.mandateId, mandateId));
+    await txAuditLog(txDb, mandateId, "TTL_EXTEND", caller, { additional_seconds: additionalSeconds });
+
+    await client.query("COMMIT");
+
+    return {
+      mandate_id: mandateId,
+      ttl_seconds: newTtl,
+      expires_at: newExpiresAt?.toISOString() ?? "",
+      additional_seconds: additionalSeconds,
+      extended_by: caller,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    rethrowDbConstraint(err);
+  } finally {
+    client.release();
   }
-
-  const newExpiresAt = m.expiresAt
-    ? new Date(m.expiresAt.getTime() + additionalSeconds * 1000)
-    : null;
-
-  await db
-    .update(mandatesTable)
-    .set({
-      ttlSeconds: newTtl,
-      expiresAt: newExpiresAt,
-      updatedAt: new Date(),
-    })
-    .where(eq(mandatesTable.mandateId, mandateId));
-  await auditLog(mandateId, "TTL_EXTEND", caller, { additional_seconds: additionalSeconds });
-
-  return {
-    mandate_id: mandateId,
-    ttl_seconds: newTtl,
-    expires_at: newExpiresAt?.toISOString() ?? "",
-    additional_seconds: additionalSeconds,
-    extended_by: caller,
-  };
 }
 
 export async function createDelegation(
