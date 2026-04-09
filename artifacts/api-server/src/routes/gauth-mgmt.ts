@@ -134,7 +134,13 @@ router.get(
       project_id: req.query.project_id as string | undefined,
       governance_profile: req.query.governance_profile as string | undefined,
       cursor: req.query.cursor as string | undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      limit: req.query.limit ? (() => {
+        const n = parseInt(req.query.limit as string, 10);
+        if (isNaN(n) || n < 1 || n > 200) {
+          throw new ManagementError("SCHEMA_VALIDATION_FAILED", "limit must be an integer between 1 and 200");
+        }
+        return n;
+      })() : undefined,
     });
     res.json(result);
   }),
