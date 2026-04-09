@@ -25,6 +25,10 @@ function mandateToResponse(m: Mandate) {
   const consumed = m.budgetConsumedCents;
   const remaining = m.budgetRemainingCents;
   const reserved = m.reservedForDelegationsCents;
+  const now = Date.now();
+  const remainingTtlSeconds = m.expiresAt
+    ? Math.max(0, Math.floor((m.expiresAt.getTime() - now) / 1000))
+    : m.ttlSeconds;
   return {
     mandate_id: m.mandateId,
     status: m.status,
@@ -45,6 +49,8 @@ function mandateToResponse(m: Mandate) {
     platform_permissions_hash: m.platformPermissionsHash,
     delegation_depth: m.delegationDepth,
     parent_mandate_id: m.parentMandateId,
+    ttl_seconds: m.ttlSeconds,
+    remaining_ttl_seconds: remainingTtlSeconds,
     created_at: m.createdAt.toISOString(),
     activated_at: m.activatedAt?.toISOString() ?? null,
     expires_at: m.expiresAt?.toISOString() ?? null,
@@ -222,17 +228,35 @@ export async function listMandates(params: {
   limit?: number;
 }) {
   const limit = Math.min(params.limit ?? 20, 100);
-  const conditions: ReturnType<typeof eq>[] = [];
+  const baseConditions: ReturnType<typeof eq>[] = [];
 
   if (params.status) {
-    conditions.push(eq(mandatesTable.status, params.status as Mandate["status"]));
+    baseConditions.push(eq(mandatesTable.status, params.status as Mandate["status"]));
   }
   if (params.governance_profile) {
-    conditions.push(
+    baseConditions.push(
       eq(mandatesTable.governanceProfile, params.governance_profile as GovernanceProfile),
     );
   }
+  if (params.agent_id) {
+    baseConditions.push(
+      sql`(${mandatesTable.parties}->>'subject')::text = ${params.agent_id}`,
+    );
+  }
+  if (params.project_id) {
+    baseConditions.push(
+      sql`(${mandatesTable.parties}->>'project_id')::text = ${params.project_id}`,
+    );
+  }
 
+  const countWhere = baseConditions.length > 0 ? and(...baseConditions) : undefined;
+  const countResult = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(mandatesTable)
+    .where(countWhere);
+  const total = countResult[0]?.count ?? 0;
+
+  const pageConditions = [...baseConditions];
   if (params.cursor) {
     const cursorMandate = await db
       .select({ createdAt: mandatesTable.createdAt })
@@ -240,46 +264,23 @@ export async function listMandates(params: {
       .where(eq(mandatesTable.mandateId, params.cursor))
       .limit(1);
     if (cursorMandate.length > 0) {
-      conditions.push(
+      pageConditions.push(
         sql`${mandatesTable.createdAt} < ${cursorMandate[0].createdAt}`,
       );
     }
   }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-  const allRows = await db
+  const pageWhere = pageConditions.length > 0 ? and(...pageConditions) : undefined;
+  const rows = await db
     .select()
     .from(mandatesTable)
-    .where(whereClause)
+    .where(pageWhere)
     .orderBy(desc(mandatesTable.createdAt))
     .limit(limit);
 
-  let filteredRows = allRows;
-  if (params.agent_id) {
-    filteredRows = filteredRows.filter(
-      (r) => r.parties.subject === params.agent_id,
-    );
-  }
-  if (params.project_id) {
-    filteredRows = filteredRows.filter(
-      (r) => r.parties.project_id === params.project_id,
-    );
-  }
-
-  const items = filteredRows.map(mandateToResponse);
+  const items = rows.map(mandateToResponse);
   const nextCursor =
     items.length === limit ? items[items.length - 1].mandate_id : null;
-
-  const countResult = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(mandatesTable)
-    .where(
-      conditions.filter((c) => c !== conditions[conditions.length - 1] || !params.cursor).length > 0
-        ? and(...conditions.filter((_, i) => !(params.cursor && i === conditions.length - 1)))
-        : undefined,
-    );
-  const total = countResult[0]?.count ?? 0;
 
   return { items, next_cursor: nextCursor, total };
 }
@@ -533,6 +534,7 @@ export async function consumeBudget(
   enforcementRequestId: string,
   amountCents: number,
   description: string,
+  caller: string,
 ) {
   const existing = await db
     .select()
@@ -650,7 +652,7 @@ export async function consumeBudget(
     await txDb.insert(auditLogsTable).values({
       mandateId,
       operationType: "BUDGET_CONSUME",
-      callerIdentity: "pep",
+      callerIdentity: caller,
       detail: auditDetail,
     });
 

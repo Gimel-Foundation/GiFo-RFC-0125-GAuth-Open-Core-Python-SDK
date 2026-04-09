@@ -201,6 +201,8 @@ export interface MandateResponse {
   platform_permissions_hash: string;
   delegation_depth: number;
   parent_mandate_id: string | null;
+  ttl_seconds: number;
+  remaining_ttl_seconds: number;
   created_at: string;
   activated_at: string | null;
   expires_at: string | null;

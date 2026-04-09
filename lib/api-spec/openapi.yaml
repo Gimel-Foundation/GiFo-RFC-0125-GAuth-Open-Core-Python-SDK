@@ -42,6 +42,8 @@ paths:
       tags: [mgmt-health]
       summary: Management API health
       description: Returns management API version, interface version, and feature flags
+      security:
+        - callerIdentity: []
       responses:
         "200":
           description: Management API health info
@@ -55,6 +57,8 @@ paths:
       tags: [profiles]
       summary: List governance profiles
       description: Returns all available governance profiles with descriptions
+      security:
+        - callerIdentity: []
       responses:
         "200":
           description: List of governance profiles
@@ -70,6 +74,8 @@ paths:
       tags: [profiles]
       summary: Get profile ceilings
       description: Returns the ceiling table for a specific governance profile
+      security:
+        - callerIdentity: []
       parameters:
         - name: profile
           in: path
@@ -826,6 +832,8 @@ components:
         - platform_permissions_hash
         - delegation_depth
         - parent_mandate_id
+        - ttl_seconds
+        - remaining_ttl_seconds
         - created_at
         - activated_at
         - expires_at
@@ -860,6 +868,10 @@ components:
           type: string
           format: uuid
           nullable: true
+        ttl_seconds:
+          type: integer
+        remaining_ttl_seconds:
+          type: integer
         created_at:
           type: string
           format: date-time

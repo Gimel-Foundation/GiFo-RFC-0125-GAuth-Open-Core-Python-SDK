@@ -60,6 +60,8 @@ function zodParse(
   return result.data as Record<string, unknown>;
 }
 
+router.use(requireAuth);
+
 router.get("/health", (_req, res) => {
   res.json(mgmt.getHealthInfo());
 });
@@ -75,8 +77,6 @@ router.get(
     res.json(result);
   }),
 );
-
-router.use(requireAuth);
 
 router.post(
   "/mandates",
@@ -207,6 +207,7 @@ router.post(
       parsed.enforcement_request_id as string,
       parsed.amount_cents as number,
       parsed.description as string,
+      getCaller(req),
     );
     res.json(result);
   }),
