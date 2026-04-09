@@ -87,6 +87,10 @@ function chk02TemporalValidity(cred: PoACredentialInput, ctx: EnforcementContext
     return fail(id, name, violationCodes.CREDENTIAL_INVALID, `Agent identity '${ctx.agent_id}' does not match credential subject '${cred.subject}'`);
   }
 
+  if (cred.aud && ctx.audience && cred.aud !== ctx.audience) {
+    return fail(id, name, violationCodes.CREDENTIAL_INVALID, `Credential audience '${cred.aud}' does not match expected audience '${ctx.audience}'`);
+  }
+
   if (cred.exp) {
     const expTime = new Date(cred.exp).getTime();
     if (!isNaN(expTime) && now > expTime) {
@@ -267,12 +271,15 @@ function chk08Verb(scope: Scope, action: EnforcementAction, isStateful: boolean,
     return pass(id, name, `Verb '${verb}' is authorized`);
   }
 
-  if (cred.tool_permissions_hash && liveToolHash && cred.tool_permissions_hash !== liveToolHash) {
-    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, "Tool permissions hash mismatch (stale credential)");
+  if (cred.tool_permissions_hash) {
+    if (liveToolHash && cred.tool_permissions_hash !== liveToolHash) {
+      return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, "Tool permissions hash mismatch (stale credential)");
+    }
+    return pass(id, name, `Verb '${verb}' authorized via tool_permissions_hash (stateless)`);
   }
   const verbs = scope.core_verbs as Record<string, Record<string, unknown>>;
   if (Object.keys(verbs).length === 0) {
-    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' denied: no verbs defined in credential (fail-closed)`);
+    return fail(id, name, violationCodes.VERB_NOT_AUTHORIZED, `Verb '${verb}' denied: no verbs defined and no tool_permissions_hash (fail-closed)`);
   }
   const policy = verbs[verb];
   if (!policy) {
@@ -281,7 +288,7 @@ function chk08Verb(scope: Scope, action: EnforcementAction, isStateful: boolean,
   if (policy.allowed === false) {
     return fail(id, name, violationCodes.VERB_NOT_ALLOWED, `Verb '${verb}' is explicitly disallowed`);
   }
-  return pass(id, name, `Verb '${verb}' authorized (stateless)`);
+  return pass(id, name, `Verb '${verb}' authorized (stateless, no hash)`);
 }
 
 function chk09Constraints(scope: Scope, action: EnforcementAction, isStateful: boolean): { result: CheckResult; constraints: EnforcedConstraint[] } {
@@ -330,10 +337,13 @@ function chk10PlatformPermissions(scope: Scope, action: EnforcementAction, isSta
   const name = "Platform Permissions";
 
   if (!isStateful) {
-    if (cred.platform_permissions_hash && livePlatformHash && cred.platform_permissions_hash !== livePlatformHash) {
-      return fail(id, name, violationCodes.PLATFORM_HASH_MISMATCH, "Platform permissions hash mismatch (stale credential)");
+    if (cred.platform_permissions_hash) {
+      if (livePlatformHash && cred.platform_permissions_hash !== livePlatformHash) {
+        return fail(id, name, violationCodes.PLATFORM_HASH_MISMATCH, "Platform permissions hash mismatch (stale credential)");
+      }
+      return pass(id, name, "Platform permissions validated via hash (stateless)");
     }
-    return pass(id, name, "Platform permissions hash validated (stateless)");
+    return pass(id, name, "No platform_permissions_hash in credential (stateless, no hash check)");
   }
 
   const perms = scope.platform_permissions as Record<string, unknown>;
@@ -354,7 +364,7 @@ function chk10PlatformPermissions(scope: Scope, action: EnforcementAction, isSta
   return pass(id, name, "Platform permissions check passed");
 }
 
-function chk11Transaction(scope: Scope, ctx: EnforcementContext): CheckResult {
+function chk11Transaction(scope: Scope, action: EnforcementAction, ctx: EnforcementContext): CheckResult {
   const id = "CHK-11";
   const name = "Transaction Matrix";
 
@@ -371,6 +381,15 @@ function chk11Transaction(scope: Scope, ctx: EnforcementContext): CheckResult {
 
   if (!scope.allowed_transactions.includes(ctx.transaction_type)) {
     return fail(id, name, violationCodes.TRANSACTION_NOT_ALLOWED, `Transaction type '${ctx.transaction_type}' not in allowed list`);
+  }
+
+  const verbs = scope.core_verbs as Record<string, Record<string, unknown>>;
+  const verbPolicy = verbs[action.verb] as Record<string, unknown> | undefined;
+  if (verbPolicy?.transaction_types) {
+    const allowedForVerb = verbPolicy.transaction_types as string[];
+    if (Array.isArray(allowedForVerb) && !allowedForVerb.includes(ctx.transaction_type)) {
+      return fail(id, name, violationCodes.TRANSACTION_NOT_ALLOWED, `Transaction type '${ctx.transaction_type}' not permitted for verb '${action.verb}'`);
+    }
   }
 
   return pass(id, name, `Transaction type '${ctx.transaction_type}' is allowed`);
@@ -444,7 +463,7 @@ function chk14SessionLimits(cred: PoACredentialInput, ctx: EnforcementContext, i
   return pass(id, name, constraints.length > 0 ? `Session limits OK: ${constraints.join(", ")}` : "No session limits configured");
 }
 
-function chk15Approval(cred: PoACredentialInput, action: EnforcementAction, isStateful: boolean): { result: CheckResult; constraints: EnforcedConstraint[] } {
+function chk15Approval(cred: PoACredentialInput, action: EnforcementAction, ctx: EnforcementContext, isStateful: boolean): { result: CheckResult; constraints: EnforcedConstraint[] } {
   const id = "CHK-15";
   const name = "Approval Verification";
   const constraints: EnforcedConstraint[] = [];
@@ -466,11 +485,21 @@ function chk15Approval(cred: PoACredentialInput, action: EnforcementAction, isSt
   const verbRequiresApproval = policy?.requires_approval === true;
 
   if (cred.approval_mode === "four-eyes" || verbRequiresApproval) {
+    const approvalToken = ctx.approval_token;
+    if (!approvalToken) {
+      return {
+        result: fail(id, name, violationCodes.APPROVAL_REQUIRED,
+          verbRequiresApproval
+            ? `Verb '${action.verb}' requires explicit approval but no approval_token provided`
+            : `Four-eyes approval mode requires approval_token but none provided`),
+        constraints,
+      };
+    }
     constraints.push({
-      type: "approval_required",
+      type: "approval_verified",
       description: verbRequiresApproval
-        ? `Verb '${action.verb}' requires explicit approval`
-        : `Four-eyes approval mode requires second approver`,
+        ? `Verb '${action.verb}' approval token accepted`
+        : `Four-eyes approval token accepted`,
       parameters: { approval_mode: cred.approval_mode, verb: action.verb },
     });
   } else if (cred.approval_mode === "supervised") {
@@ -774,12 +803,12 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
   allConstraints.push(...chk09Result.constraints);
 
   checks.push(chk10PlatformPermissions(originalScope, action, isStateful, cred, liveData?.platformPermissionsHash));
-  checks.push(chk11Transaction(originalScope, ctx));
+  checks.push(chk11Transaction(originalScope, action, ctx));
   checks.push(chk12DecisionType(originalScope, ctx));
   checks.push(chk13Budget(cred, ctx, isStateful, liveData?.budgetRemainingCents));
   checks.push(chk14SessionLimits(cred, ctx, isStateful, liveData?.sessionLimits));
 
-  const chk15Result = chk15Approval(cred, action, isStateful);
+  const chk15Result = chk15Approval(cred, action, ctx, isStateful);
   checks.push(chk15Result.result);
   allConstraints.push(...chk15Result.constraints);
 
@@ -802,7 +831,7 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
     allConstraints.push(...pass2Chk09.constraints);
 
     pass2Checks.push(chk10PlatformPermissions(narrowedScope, action, isStateful, cred, liveData?.platformPermissionsHash));
-    pass2Checks.push(chk11Transaction(narrowedScope, ctx));
+    pass2Checks.push(chk11Transaction(narrowedScope, action, ctx));
     pass2Checks.push(chk12DecisionType(narrowedScope, ctx));
 
     for (const pc of pass2Checks) {
@@ -832,11 +861,6 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
       message: c.message,
     }));
 
-  const processingTimeMs = Date.now() - startTime;
-  const checksRun = checks.filter(c => c.result !== "skip").length;
-  const checksPassed = checks.filter(c => c.result === "pass").length;
-  const checksFailed = checks.filter(c => c.result === "fail").length;
-
   if (decision === "PERMIT" && ctx.budget_impact_cents > 0) {
     try {
       await mgmt.consumeBudget(
@@ -858,6 +882,11 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
       });
     }
   }
+
+  const processingTimeMs = Date.now() - startTime;
+  const checksRun = checks.filter(c => c.result !== "skip").length;
+  const checksPassed = checks.filter(c => c.result === "pass").length;
+  const checksFailed = checks.filter(c => c.result === "fail").length;
 
   return {
     request_id: req.request_id,

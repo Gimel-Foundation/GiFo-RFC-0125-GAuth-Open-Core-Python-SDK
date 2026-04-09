@@ -28,6 +28,8 @@ export const enforcementContextSchema = z.object({
   region: z.string().optional(),
   decision_type: z.string().optional(),
   transaction_type: z.string().optional(),
+  approval_token: z.string().optional(),
+  audience: z.string().optional(),
 });
 export type EnforcementContext = z.infer<typeof enforcementContextSchema>;
 
@@ -54,6 +56,7 @@ export const poaCredentialInputSchema = z.object({
   scope_checksum: z.string().default(""),
   tool_permissions_hash: z.string().default(""),
   platform_permissions_hash: z.string().default(""),
+  aud: z.string().optional(),
   status: z.enum(mandateStatusValues).default("ACTIVE"),
   delegation_chain: z.array(z.object({
     delegator: z.string(),
@@ -137,6 +140,16 @@ export const batchEnforcementResponseSchema = z.object({
 export type BatchEnforcementResponse = z.infer<typeof batchEnforcementResponseSchema>;
 
 export const PEP_INTERFACE_VERSION = "1.1";
+
+export const enforcementErrorSchema = z.object({
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+    request_id: z.string().optional(),
+    pep_interface_version: z.string().default(PEP_INTERFACE_VERSION),
+  }),
+});
+export type EnforcementError = z.infer<typeof enforcementErrorSchema>;
 
 export const violationCodes = {
   CREDENTIAL_INVALID: "V-001",
