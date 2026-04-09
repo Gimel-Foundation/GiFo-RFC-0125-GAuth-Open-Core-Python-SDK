@@ -18,6 +18,29 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
+## GAuth TypeScript Schema & Types (lib/db)
+
+- **Location**: `lib/db/src/schema/`
+- **Database**: PostgreSQL + Drizzle ORM tables (mandates, audit_logs, delegations, budget_consumption)
+- **Zod schemas**: All RFC 0116/0118 request/response types, PoA credential, validation result
+- **Ceilings**: 5 governance profiles with 14+ ceiling attributes each
+- **Validation**: 3-stage pipeline (schema parse, ceiling enforcement, consistency C-1..C-6)
+- **Checksums**: SHA-256 via RFC 8785 JCS-compatible canonical JSON
+- **Errors**: 22 management error codes with HTTP status mappings
+- **Schema push**: `pnpm --filter @workspace/db run push`
+
+### Schema Files
+
+| File | Purpose |
+|------|---------|
+| `enums.ts` | pgEnum definitions, TS literal types, constants (TERMINAL_STATUSES, APPROVAL_MODE_RANK) |
+| `mandates.ts` | Drizzle pgTable definitions (mandates, audit_logs, delegations, budget_consumption) |
+| `zod-schemas.ts` | Zod v4 schemas for all API request/response types, PoA credential |
+| `ceilings.ts` | CeilingDefinition interface + CEILING_TABLE constant + validateAgainstCeiling() |
+| `checksums.ts` | canonicalJson(), computeScopeChecksum(), computeToolPermissionsHash(), computePlatformPermissionsHash() |
+| `validation.ts` | validateSchema(), validateCeilings(), validateConsistency(), validateMandate() |
+| `errors.ts` | ManagementErrorCode type, ERROR_CODE_HTTP_STATUS map, ManagementError class |
+
 ## GAuth Open Core (Python SDK)
 
 - **Location**: `gauth-core/`
@@ -26,7 +49,7 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: Apache 2.0
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 115 tests across 6 test modules
+- **Tests**: 130 tests across 6 test modules
 
 ### Submodules (9 total)
 
