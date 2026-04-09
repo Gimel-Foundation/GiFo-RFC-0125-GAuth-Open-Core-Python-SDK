@@ -78,6 +78,31 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 | GET | /profiles/:profile/ceilings | Profile ceiling table |
 | GET | /health | Version and feature flags |
 
+## GAuth PEP Engine (TypeScript)
+
+- **Location**: `artifacts/api-server/src/lib/pep-service.ts` (engine), `artifacts/api-server/src/routes/gauth-pep.ts` (routes)
+- **Base path**: `/api/gauth/pep/v1/`
+- **Types**: `lib/db/src/schema/pep-types.ts` — EnforcementRequest/Decision schemas, 29 violation codes (V-001..V-099)
+- **Authentication**: Same HMAC-SHA256 Bearer token as mgmt API (enforce/batch-enforce only; health/policy are open)
+- **Enforcement modes**: stateless (credential snapshot), stateful (live mandate lookup)
+- **Fail-closed**: stateful mode returns DENY if live mandate lookup fails; budget consumption failure downgrades PERMIT to DENY
+- **Agent binding**: CHK-02 verifies `context.agent_id == credential.subject`
+- **Two-pass delegation**: Pass 1 runs CHK-01–CHK-15, Pass 2 re-evaluates CHK-05–CHK-12 against effective (narrowed) scope with `-P2` suffix
+- **CHK-16**: Validates chain continuity, monotonic `max_depth_remaining`, `delegated_at` temporal validity, and last delegate == presenting agent
+
+### PEP Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | /enforce | Yes | Single enforcement request |
+| POST | /batch-enforce | Yes | Batch enforcement (parallel) |
+| GET | /policy | No | Supported checks, modes, profiles |
+| GET | /health | No | PEP status and version |
+
+### 16 Checks
+
+CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance Profile Ceiling, CHK-04 Phase Match, CHK-05 Sector Allowlist, CHK-06 Region Allowlist, CHK-07 Path Evaluation, CHK-08 Verb Authorization, CHK-09 Verb Constraints, CHK-10 Platform Permissions, CHK-11 Transaction Matrix, CHK-12 Decision Type Allowlist, CHK-13 Budget Check, CHK-14 Session Limits, CHK-15 Approval Verification, CHK-16 Delegation Chain Validation
+
 ## GAuth Open Core (Python SDK)
 
 - **Location**: `gauth-core/`
