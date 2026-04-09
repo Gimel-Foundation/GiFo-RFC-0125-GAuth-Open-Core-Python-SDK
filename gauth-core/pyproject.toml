@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gauth-core"
+version = "0.1.0"
+description = "GAuth Open Core SDK — Power of Attorney compliance monitoring for AI agents"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Gimel Foundation — Architecture Working Group" },
+]
+keywords = ["gauth", "poa", "authorization", "ai-agents", "compliance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+http = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "httpx>=0.24",
+]
+
+[project.urls]
+Homepage = "https://github.com/gimelfoundation/gauth-core-python"
+Documentation = "https://github.com/gimelfoundation/gauth-core-python#readme"
+Repository = "https://github.com/gimelfoundation/gauth-core-python"
+Issues = "https://github.com/gimelfoundation/gauth-core-python/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gauth_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
