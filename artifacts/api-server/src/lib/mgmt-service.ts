@@ -20,6 +20,22 @@ import {
 } from "@workspace/db";
 import { drizzle } from "drizzle-orm/node-postgres";
 
+function rethrowDbConstraint(err: unknown): never {
+  if (err instanceof ManagementError) throw err;
+  const pgCode = (err as Record<string, unknown>)?.code;
+  const detail = String((err as Record<string, unknown>)?.detail ?? "");
+  if (pgCode === "23505") {
+    if (detail.includes("subject_project_active")) {
+      throw new ManagementError("DUPLICATE_MANDATE", "An ACTIVE mandate already exists for this subject and project");
+    }
+    throw new ManagementError("DUPLICATE_MANDATE", `Unique constraint violation: ${detail}`);
+  }
+  if (pgCode === "23503") {
+    throw new ManagementError("MANDATE_NOT_FOUND", `Foreign key constraint violation: ${detail}`);
+  }
+  throw err;
+}
+
 function mandateToResponse(m: Mandate) {
   const total = m.budgetTotalCents;
   const consumed = m.budgetConsumedCents;
@@ -439,7 +455,7 @@ export async function activateMandate(mandateId: string, caller: string) {
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
-    throw err;
+    rethrowDbConstraint(err);
   } finally {
     client.release();
   }
@@ -476,7 +492,7 @@ export async function revokeMandate(mandateId: string, reason: string, caller: s
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
+    rethrowDbConstraint(err);
   } finally {
     client.release();
   }
@@ -513,7 +529,7 @@ export async function suspendMandate(mandateId: string, reason: string, caller: 
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
+    rethrowDbConstraint(err);
   } finally {
     client.release();
   }
@@ -557,10 +573,10 @@ export async function resumeMandate(mandateId: string, caller: string) {
     await client.query("COMMIT");
   } catch (err) {
     if (err instanceof ManagementError && err.code === "MANDATE_EXPIRED") {
-      throw err;
+      rethrowDbConstraint(err);
     }
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
+    rethrowDbConstraint(err);
   } finally {
     client.release();
   }
@@ -767,7 +783,7 @@ export async function consumeBudget(
     };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
+    rethrowDbConstraint(err);
   } finally {
     client.release();
   }
@@ -1095,7 +1111,7 @@ export async function createDelegation(
     };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    throw err;
+    rethrowDbConstraint(err);
   } finally {
     client.release();
   }
