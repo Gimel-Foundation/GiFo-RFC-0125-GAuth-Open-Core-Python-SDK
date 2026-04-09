@@ -178,6 +178,78 @@ export const delegationRequestSchema = z.object({
 });
 export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 
+export const activationResponseSchema = z.object({
+  mandate_id: z.string(),
+  status: z.literal("ACTIVE"),
+  activated_at: z.string(),
+  expires_at: z.string(),
+});
+export type ActivationResponse = z.infer<typeof activationResponseSchema>;
+
+export const revocationResponseSchema = z.object({
+  mandate_id: z.string(),
+  status: z.literal("REVOKED"),
+  reason: z.string(),
+  revoked_at: z.string(),
+});
+export type RevocationResponse = z.infer<typeof revocationResponseSchema>;
+
+export const suspensionResponseSchema = z.object({
+  mandate_id: z.string(),
+  status: z.literal("SUSPENDED"),
+  reason: z.string(),
+  suspended_at: z.string(),
+});
+export type SuspensionResponse = z.infer<typeof suspensionResponseSchema>;
+
+export const resumptionResponseSchema = z.object({
+  mandate_id: z.string(),
+  status: z.literal("ACTIVE"),
+  resumed_at: z.string(),
+});
+export type ResumptionResponse = z.infer<typeof resumptionResponseSchema>;
+
+export const budgetIncreaseResponseSchema = z.object({
+  mandate_id: z.string(),
+  budget: budgetDetailSchema,
+  increased_by: z.number().int(),
+});
+export type BudgetIncreaseResponse = z.infer<typeof budgetIncreaseResponseSchema>;
+
+export const consumptionResponseSchema = z.object({
+  mandate_id: z.string(),
+  enforcement_request_id: z.string(),
+  amount_cents: z.number().int(),
+  budget: budgetDetailSchema,
+});
+export type ConsumptionResponse = z.infer<typeof consumptionResponseSchema>;
+
+export const ttlExtensionResponseSchema = z.object({
+  mandate_id: z.string(),
+  ttl_seconds: z.number().int(),
+  expires_at: z.string(),
+  extended_by: z.number().int(),
+});
+export type TTLExtensionResponse = z.infer<typeof ttlExtensionResponseSchema>;
+
+export const delegationResponseSchema = z.object({
+  mandate_id: z.string(),
+  parent_mandate_id: z.string(),
+  delegate_agent_id: z.string(),
+  delegation_depth: z.number().int(),
+  budget: budgetDetailSchema,
+  scope: mandateScopeSchema,
+  created_at: z.string(),
+  expires_at: z.string(),
+});
+export type DelegationResponse = z.infer<typeof delegationResponseSchema>;
+
+export const deleteResponseSchema = z.object({
+  mandate_id: z.string(),
+  deleted: z.boolean(),
+});
+export type DeleteResponse = z.infer<typeof deleteResponseSchema>;
+
 export const mandateResponseSchema = z.object({
   mandate_id: z.string(),
   status: mandateStatusSchema,

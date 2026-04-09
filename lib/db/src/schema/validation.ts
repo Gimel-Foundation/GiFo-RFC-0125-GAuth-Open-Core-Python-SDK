@@ -134,6 +134,28 @@ export function validateConsistency(
     }
   }
 
+  const activeModules = (scope.active_modules ?? []) as string[];
+  const knownModules = new Set([
+    "file_ops",
+    "git_ops",
+    "shell",
+    "database",
+    "network",
+    "secrets",
+    "deployment",
+    "monitoring",
+    "delegation",
+  ]);
+  for (const mod of activeModules) {
+    if (!knownModules.has(mod)) {
+      errors.push({
+        rule: "C-5",
+        message: `Unknown module '${mod}' in active_modules`,
+        code: "UNKNOWN_MODULE",
+      });
+    }
+  }
+
   const platformPerms = (scope.platform_permissions ?? {}) as Record<
     string,
     unknown
@@ -162,6 +184,22 @@ export function validateConsistency(
       }
     } catch {
       // profile lookup failed, skip C-6
+    }
+  }
+
+  const allowedPaths2 = (scope.allowed_paths ?? []) as string[];
+  const deniedPaths2 = (scope.denied_paths ?? []) as string[];
+  if (allowedPaths2.length > 0 && deniedPaths2.length > 0) {
+    for (const denied of deniedPaths2) {
+      for (const allowed of allowedPaths2) {
+        if (allowed.startsWith(denied) && allowed !== denied) {
+          errors.push({
+            rule: "C-6",
+            message: `Delegation scope conflict: allowed_path '${allowed}' is nested under denied_path '${denied}'`,
+            code: "DELEGATION_SCOPE_CONFLICT",
+          });
+        }
+      }
     }
   }
 
