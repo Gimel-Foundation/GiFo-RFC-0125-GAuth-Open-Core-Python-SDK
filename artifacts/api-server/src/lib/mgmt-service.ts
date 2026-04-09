@@ -672,7 +672,7 @@ export async function consumeBudget(
     }
     if (amountCents > m.budgetRemainingCents) {
       throw new ManagementError(
-        "DELEGATION_BUDGET_EXCEEDED",
+        "BUDGET_EXCEEDED",
         `Insufficient budget: ${amountCents} > ${m.budgetRemainingCents} remaining`,
       );
     }
@@ -965,6 +965,18 @@ export async function createDelegation(
         "DELEGATION_BUDGET_EXCEEDED",
         `Requested ${budgetCents} exceeds parent remaining ${freshParent[0].budgetRemainingCents}`,
       );
+    }
+
+    if (freshParent[0].expiresAt) {
+      const parentRemainingSeconds = Math.floor(
+        (freshParent[0].expiresAt.getTime() - Date.now()) / 1000,
+      );
+      if (ttlSeconds > parentRemainingSeconds) {
+        throw new ManagementError(
+          "DELEGATION_TTL_EXCEEDED",
+          `TTL ${ttlSeconds}s exceeds parent remaining ${parentRemainingSeconds}s`,
+        );
+      }
     }
 
     await txDb

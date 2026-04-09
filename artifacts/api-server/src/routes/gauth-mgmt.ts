@@ -136,8 +136,8 @@ router.get(
       cursor: req.query.cursor as string | undefined,
       limit: req.query.limit ? (() => {
         const n = parseInt(req.query.limit as string, 10);
-        if (isNaN(n) || n < 1 || n > 200) {
-          throw new ManagementError("SCHEMA_VALIDATION_FAILED", "limit must be an integer between 1 and 200");
+        if (isNaN(n) || n < 1 || n > 100) {
+          throw new ManagementError("SCHEMA_VALIDATION_FAILED", "limit must be an integer between 1 and 100");
         }
         return n;
       })() : undefined,
