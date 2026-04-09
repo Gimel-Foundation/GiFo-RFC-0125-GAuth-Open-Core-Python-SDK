@@ -405,12 +405,18 @@ def chk_15_approval(
             CheckSeverity.INFO, message="Approval check skipped in stateless mode",
         )
 
-    approval_mode = credential.get("approval_mode", "autonomous")
+    if mode == EnforcementMode.STATEFUL and live_mandate:
+        req = live_mandate.get("requirements", {})
+        approval_mode = req.get("approval_mode", credential.get("approval_mode", "autonomous"))
+        core_verbs = live_mandate.get("scope", {}).get("core_verbs", credential.get("core_verbs", {}))
+    else:
+        approval_mode = credential.get("approval_mode", "autonomous")
+        core_verbs = credential.get("core_verbs", {})
+
     if approval_mode == "autonomous":
         return _check_result("CHK-15", "Approval", True, message="Autonomous mode — no approval required")
 
     verb = action.get("verb", "")
-    core_verbs = credential.get("core_verbs", {})
     policy = core_verbs.get(verb, {})
     if isinstance(policy, dict) and policy.get("requires_approval", False):
         return _check_result(

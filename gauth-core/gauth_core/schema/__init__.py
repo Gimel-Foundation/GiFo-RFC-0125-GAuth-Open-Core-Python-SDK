@@ -19,6 +19,7 @@ from gauth_core.schema.poa import (
     MandateRequirements,
     SessionLimits,
     Budget,
+    PoACredential,
 )
 from gauth_core.schema.mgmt import (
     MandateCreationRequest,
@@ -76,6 +77,7 @@ __all__ = [
     "MandateRequirements",
     "SessionLimits",
     "Budget",
+    "PoACredential",
     "MandateCreationRequest",
     "MandateCreationResponse",
     "MandateActivationRequest",

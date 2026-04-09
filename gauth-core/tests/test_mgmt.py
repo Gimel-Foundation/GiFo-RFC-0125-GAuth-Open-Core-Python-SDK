@@ -240,6 +240,43 @@ class TestDelegation:
         child = service.get_mandate(result["mandate_id"])
         assert child["scope"]["allowed_paths"] == ["src/"]
 
+    def test_delegation_platform_permissions_narrowed(self, service):
+        data = _valid_mandate_data()
+        data["scope"]["platform_permissions"] = {
+            "auto_deploy": True,
+            "db_write": True,
+            "db_production": False,
+        }
+        created = service.create_mandate(data)
+        service.activate_mandate(created["mandate_id"], "user_1")
+        result = service.create_delegation(
+            created["mandate_id"],
+            "sub_agent",
+            {"platform_permissions": {"auto_deploy": True, "db_write": False, "db_production": True}},
+            2000,
+            3600,
+            "agent_1",
+        )
+        child = service.get_mandate(result["mandate_id"])
+        pp = child["scope"]["platform_permissions"]
+        assert pp["auto_deploy"] is True
+        assert pp["db_write"] is False
+        assert pp["db_production"] is False
+
+    def test_delegation_ignores_unknown_scope_keys(self, service):
+        created = service.create_mandate(_valid_mandate_data())
+        service.activate_mandate(created["mandate_id"], "user_1")
+        result = service.create_delegation(
+            created["mandate_id"],
+            "sub_agent",
+            {"nonexistent_key": "some_value"},
+            2000,
+            3600,
+            "agent_1",
+        )
+        child = service.get_mandate(result["mandate_id"])
+        assert "nonexistent_key" not in child["scope"]
+
     def test_cascade_revocation(self, service):
         parent = service.create_mandate(_valid_mandate_data())
         service.activate_mandate(parent["mandate_id"], "user_1")

@@ -486,6 +486,7 @@ class MandateManagementService:
             list_keys = {"allowed_paths", "allowed_sectors", "allowed_regions",
                          "allowed_transactions", "allowed_decisions"}
             additive_keys = {"denied_paths"}
+            bool_restrict_keys = {"platform_permissions"}
             for key, value in scope_restriction.items():
                 if key not in child_scope:
                     continue
@@ -508,7 +509,22 @@ class MandateManagementService:
                         if k in restricted_verbs:
                             narrowed[k] = restricted_verbs[k]
                     child_scope["core_verbs"] = narrowed
-                else:
+                elif key in bool_restrict_keys and isinstance(value, dict):
+                    parent_dict = child_scope.get(key, {})
+                    if isinstance(parent_dict, dict):
+                        narrowed_dict = {}
+                        for dk, dv in parent_dict.items():
+                            if dk in value:
+                                if isinstance(dv, bool) and isinstance(value[dk], bool):
+                                    narrowed_dict[dk] = dv and value[dk]
+                                elif isinstance(dv, list) and isinstance(value[dk], list):
+                                    narrowed_dict[dk] = sorted(set(dv) & set(value[dk]))
+                                else:
+                                    narrowed_dict[dk] = dv
+                            else:
+                                narrowed_dict[dk] = dv
+                        child_scope[key] = narrowed_dict
+                elif key in {"governance_profile", "phase"}:
                     child_scope[key] = value
 
         child_mandate = {

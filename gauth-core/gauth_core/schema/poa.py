@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+from gauth_core.schema.enums import ApprovalMode, GovernanceProfile
+
+GovernanceProfileLiteral = Literal[
+    "minimal", "standard", "strict", "enterprise", "behoerde",
+]
+
+ApprovalModeLiteral = Literal[
+    "autonomous", "supervised", "four-eyes",
+]
 
 
 class ToolPolicy(BaseModel):
@@ -54,7 +64,7 @@ class BudgetDetail(BaseModel):
 
 
 class MandateScope(BaseModel):
-    governance_profile: str
+    governance_profile: GovernanceProfileLiteral
     phase: str
     core_verbs: dict[str, ToolPolicy] = Field(default_factory=dict)
     platform_permissions: PlatformPermissions = Field(default_factory=PlatformPermissions)
@@ -69,7 +79,47 @@ class MandateScope(BaseModel):
 
 
 class MandateRequirements(BaseModel):
-    approval_mode: str
+    approval_mode: ApprovalModeLiteral
     budget: Budget
     ttl_seconds: int = Field(ge=60)
+    session_limits: SessionLimits = Field(default_factory=SessionLimits)
+
+
+class PoACredential(BaseModel):
+    """RFC 0116 §4.3 — PoA credential for PEP enforcement.
+
+    Represents the credential presented by an AI agent to the PEP engine.
+    Contains all scope, budget, temporal, and delegation information needed
+    for the 16-check enforcement pipeline.
+    """
+    mandate_id: str
+    subject: str
+    governance_profile: GovernanceProfileLiteral
+    phase: str
+    jti: str = ""
+
+    core_verbs: dict[str, Any] = Field(default_factory=dict)
+    platform_permissions: dict[str, Any] = Field(default_factory=dict)
+    allowed_paths: list[str] = Field(default_factory=list)
+    denied_paths: list[str] = Field(default_factory=list)
+    allowed_sectors: list[str] = Field(default_factory=list)
+    allowed_regions: list[str] = Field(default_factory=list)
+    allowed_transactions: list[str] = Field(default_factory=list)
+    allowed_decisions: list[str] = Field(default_factory=list)
+
+    approval_mode: ApprovalModeLiteral = "autonomous"
+
+    budget_total_cents: int = Field(ge=0, default=0)
+    budget_remaining_cents: int = Field(ge=0, default=0)
+
+    ttl_seconds: int = Field(ge=0, default=0)
+    exp: datetime | None = None
+    nbf: datetime | None = None
+
+    scope_checksum: str = ""
+    tool_permissions_hash: str = ""
+    platform_permissions_hash: str = ""
+
+    status: str = "ACTIVE"
+    delegation_chain: list[DelegationEntry] = Field(default_factory=list)
     session_limits: SessionLimits = Field(default_factory=SessionLimits)

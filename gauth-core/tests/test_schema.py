@@ -80,6 +80,52 @@ class TestMandateCreationRequest:
             )
 
 
+class TestPoACredential:
+    def test_valid_credential(self):
+        from gauth_core.schema.poa import PoACredential
+        cred = PoACredential(
+            mandate_id="mdt_abc",
+            subject="agent_1",
+            governance_profile="minimal",
+            phase="build",
+        )
+        assert cred.mandate_id == "mdt_abc"
+        assert cred.governance_profile == "minimal"
+
+    def test_invalid_profile_rejected(self):
+        from gauth_core.schema.poa import PoACredential
+        with pytest.raises(ValidationError):
+            PoACredential(
+                mandate_id="mdt_abc",
+                subject="agent_1",
+                governance_profile="invalid_profile",
+                phase="build",
+            )
+
+    def test_invalid_approval_mode_rejected(self):
+        from gauth_core.schema.poa import PoACredential
+        with pytest.raises(ValidationError):
+            PoACredential(
+                mandate_id="mdt_abc",
+                subject="agent_1",
+                governance_profile="minimal",
+                phase="build",
+                approval_mode="invalid_mode",
+            )
+
+
+class TestMandateScopeEnumValidation:
+    def test_invalid_governance_profile_rejected(self):
+        from gauth_core.schema.poa import MandateScope
+        with pytest.raises(ValidationError):
+            MandateScope(governance_profile="bogus", phase="build")
+
+    def test_valid_governance_profile_accepted(self):
+        from gauth_core.schema.poa import MandateScope
+        s = MandateScope(governance_profile="enterprise", phase="build")
+        assert s.governance_profile == "enterprise"
+
+
 class TestEnums:
     def test_governance_profiles(self):
         assert len(GovernanceProfile) == 5
