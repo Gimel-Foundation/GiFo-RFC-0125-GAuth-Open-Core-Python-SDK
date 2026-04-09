@@ -125,7 +125,11 @@ async function cascadeStatusToChildren(
     if (childMandate.length > 0 && (childMandate[0].status === "ACTIVE" || childMandate[0].status === "SUSPENDED")) {
       await txDb
         .update(mandatesTable)
-        .set({ status: newStatus, updatedAt: new Date() })
+        .set({
+          status: newStatus,
+          subjectProjectActive: newStatus === "REVOKED" ? null : undefined,
+          updatedAt: new Date(),
+        })
         .where(eq(mandatesTable.mandateId, child.childMandateId));
       await txAuditLog(txDb, child.childMandateId, newStatus === "REVOKED" ? "REVOKE" : "SUSPEND", "system", {
         reason: `Cascaded from parent ${parentMandateId}`,
@@ -152,7 +156,7 @@ async function cascadeResumeToChildren(txDb: TxDb, parentMandateId: string) {
       if (childMandate[0].expiresAt && childMandate[0].expiresAt <= now) {
         await txDb
           .update(mandatesTable)
-          .set({ status: "EXPIRED", updatedAt: now })
+          .set({ status: "EXPIRED", subjectProjectActive: null, updatedAt: now })
           .where(eq(mandatesTable.mandateId, child.childMandateId));
         await txAuditLog(txDb, child.childMandateId, "RESUME", "system", {
           reason: "Expired during suspension",
@@ -401,7 +405,7 @@ export async function activateMandate(mandateId: string, caller: string) {
     for (const active of existingActive) {
       await txDb
         .update(mandatesTable)
-        .set({ status: "SUPERSEDED", updatedAt: now })
+        .set({ status: "SUPERSEDED", subjectProjectActive: null, updatedAt: now })
         .where(eq(mandatesTable.mandateId, active.mandateId));
       await txDb.insert(auditLogsTable).values({
         mandateId: active.mandateId,
@@ -411,10 +415,12 @@ export async function activateMandate(mandateId: string, caller: string) {
       });
     }
 
+    const subjectProjectKey = `${m.parties.subject}::${m.parties.project_id}`;
     await txDb
       .update(mandatesTable)
       .set({
         status: "ACTIVE",
+        subjectProjectActive: subjectProjectKey,
         activatedAt: now,
         expiresAt,
         updatedAt: now,
@@ -462,7 +468,7 @@ export async function revokeMandate(mandateId: string, reason: string, caller: s
       throw new ManagementError("INVALID_STATE_TRANSITION", `Cannot revoke mandate in status ${m.status}`);
     }
 
-    await txDb.update(mandatesTable).set({ status: "REVOKED", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
+    await txDb.update(mandatesTable).set({ status: "REVOKED", subjectProjectActive: null, updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
     await txAuditLog(txDb, mandateId, "REVOKE", caller, { reason });
     await cascadeStatusToChildren(txDb, mandateId, "REVOKED");
 
@@ -537,7 +543,7 @@ export async function resumeMandate(mandateId: string, caller: string) {
     }
 
     if (m.expiresAt && m.expiresAt <= now) {
-      await txDb.update(mandatesTable).set({ status: "EXPIRED", updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
+      await txDb.update(mandatesTable).set({ status: "EXPIRED", subjectProjectActive: null, updatedAt: now }).where(eq(mandatesTable.mandateId, mandateId));
       await txAuditLog(txDb, mandateId, "RESUME", caller, { reason: "Expired during suspension" });
       await client.query("COMMIT");
       throw new ManagementError("MANDATE_EXPIRED", "Mandate expired during suspension");
@@ -714,6 +720,7 @@ export async function consumeBudget(
         budgetRemainingCents: newRemaining,
         budgetConsumedCents: newConsumed,
         status: newStatus as Mandate["status"],
+        subjectProjectActive: newStatus === "BUDGET_EXCEEDED" ? null : undefined,
         updatedAt: new Date(),
       })
       .where(eq(mandatesTable.mandateId, mandateId));
@@ -983,7 +990,11 @@ export async function createDelegation(
           issued_by: caller,
         },
         scope: childScope,
-        requirements: parent.requirements,
+        requirements: {
+          ...(parent.requirements as Record<string, unknown>),
+          budget: { total_cents: budgetCents },
+          ttl_seconds: ttlSeconds,
+        },
         scopeChecksum,
         toolPermissionsHash,
         platformPermissionsHash,
@@ -994,6 +1005,7 @@ export async function createDelegation(
         ttlSeconds,
         parentMandateId,
         delegationDepth: newDepth,
+        subjectProjectActive: `${delegateAgentId}::${parent.parties.project_id}`,
         activatedAt: now,
         expiresAt: childExpiresAt,
       })

@@ -46,9 +46,12 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 - **Location**: `artifacts/api-server/src/routes/gauth-mgmt.ts` (routes), `artifacts/api-server/src/lib/mgmt-service.ts` (service layer)
 - **Base path**: `/api/gauth/mgmt/v1/`
 - **17 endpoints**: mandate CRUD, status transitions, budget ops, TTL extension, delegation, profiles, health
+- **Authentication**: HMAC-SHA256 Bearer token auth (`GAUTH_API_SECRET` env var), plus `X-Caller-Identity` header for caller attribution
+- **Activation atomicity**: partial unique index `mandates_active_subject_project_idx` enforces at most one ACTIVE mandate per (subject, project_id) at the DB level
 - **Transactional safety**: activation (supersession), budget consumption, and delegation use explicit PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking for concurrency safety
 - **Idempotent consumption**: duplicate `(mandate_id, enforcement_request_id)` composite key returns current budget state (no double deduction)
 - **Cascade**: revocation/suspension propagates synchronously to all child delegations
+- **Delegation coherence**: child mandate `requirements` reflect actual delegated budget/TTL (not inherited parent values)
 - **TTL ceiling validation**: extensions validated against governance profile `maxSessionDurationMinutes`
 - **Error handling**: ManagementError → structured JSON responses with correct HTTP status codes
 

@@ -43,7 +43,8 @@ paths:
       summary: Management API health
       description: Returns management API version, interface version, and feature flags
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       responses:
         "200":
           description: Management API health info
@@ -58,7 +59,8 @@ paths:
       summary: List governance profiles
       description: Returns all available governance profiles with descriptions
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       responses:
         "200":
           description: List of governance profiles
@@ -75,7 +77,8 @@ paths:
       summary: Get profile ceilings
       description: Returns the ceiling table for a specific governance profile
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - name: profile
           in: path
@@ -98,7 +101,8 @@ paths:
       summary: Create a DRAFT mandate
       description: Creates a new mandate in DRAFT status after passing 3-stage validation
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       requestBody:
         required: true
         content:
@@ -122,7 +126,8 @@ paths:
       summary: List mandates
       description: List mandates with optional filtering and cursor-based pagination
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - name: status
           in: query
@@ -167,7 +172,8 @@ paths:
       summary: Get mandate detail
       description: Returns full mandate detail with computed budget utilization
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -185,7 +191,8 @@ paths:
       summary: Delete a DRAFT mandate
       description: Soft-deletes a DRAFT mandate (sets status to DELETED)
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -206,7 +213,8 @@ paths:
       summary: Get mandate audit history
       description: Returns the full immutable audit trail for a mandate
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -227,7 +235,8 @@ paths:
       summary: Activate a DRAFT mandate
       description: Transitions DRAFT→ACTIVE with re-validation and atomic supersession
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -250,7 +259,8 @@ paths:
       summary: Revoke a mandate
       description: Transitions ACTIVE|SUSPENDED→REVOKED with cascade to child delegations
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       requestBody:
@@ -280,7 +290,8 @@ paths:
       summary: Suspend a mandate
       description: Transitions ACTIVE→SUSPENDED with cascade to child delegations
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       requestBody:
@@ -310,7 +321,8 @@ paths:
       summary: Resume a suspended mandate
       description: Transitions SUSPENDED→ACTIVE with expiry check and cascade resume
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -331,7 +343,8 @@ paths:
       summary: Increase mandate budget
       description: Additive-only budget increase on ACTIVE or SUSPENDED mandates
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       requestBody:
@@ -364,7 +377,8 @@ paths:
       summary: Report budget consumption
       description: Idempotent PEP consumption report deduplicated by mandate_id + enforcement_request_id
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       requestBody:
@@ -406,7 +420,8 @@ paths:
       summary: Get budget state
       description: Returns current budget utilization for a mandate
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -425,7 +440,8 @@ paths:
       summary: Extend mandate TTL
       description: Additive-only TTL extension validated against governance profile ceiling
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       requestBody:
@@ -460,7 +476,8 @@ paths:
       summary: Create a child delegation
       description: Creates child mandate with scope narrowing, budget deduction, depth check, TTL subset
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       requestBody:
         required: true
         content:
@@ -487,7 +504,8 @@ paths:
       summary: Get delegation chain
       description: Returns full ancestry chain from root to the specified mandate
       security:
-        - callerIdentity: []
+        - bearerAuth: []
+          callerIdentity: []
       parameters:
         - $ref: "#/components/parameters/MandateId"
       responses:
@@ -501,11 +519,15 @@ paths:
           $ref: "#/components/responses/ManagementError"
 components:
   securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: HMAC-signed API token (HMAC-SHA256 of 'gauth-mgmt-v1' with GAUTH_API_SECRET)
     callerIdentity:
       type: apiKey
       in: header
       name: X-Caller-Identity
-      description: Caller identity for audit and authorization
+      description: Caller identity for audit and authorization (trusted only after bearerAuth validates)
   parameters:
     MandateId:
       name: id

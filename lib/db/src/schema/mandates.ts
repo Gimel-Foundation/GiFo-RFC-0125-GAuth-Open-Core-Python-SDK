@@ -7,7 +7,9 @@ import {
   jsonb,
   boolean,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import {
   mandateStatusEnum,
   governanceProfileEnum,
@@ -47,11 +49,17 @@ export const mandatesTable = pgTable("mandates", {
   parentMandateId: uuid("parent_mandate_id"),
   delegationDepth: integer("delegation_depth").notNull().default(0),
 
+  subjectProjectActive: text("subject_project_active"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   activatedAt: timestamp("activated_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("mandates_active_subject_project_idx")
+    .on(table.subjectProjectActive)
+    .where(sql`${table.status} = 'ACTIVE'`),
+]);
 
 export type Mandate = typeof mandatesTable.$inferSelect;
 export type InsertMandate = typeof mandatesTable.$inferInsert;
