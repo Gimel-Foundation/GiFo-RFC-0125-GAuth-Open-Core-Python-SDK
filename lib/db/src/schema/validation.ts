@@ -149,7 +149,7 @@ export function validateConsistency(
   for (const mod of activeModules) {
     if (!knownModules.has(mod)) {
       errors.push({
-        rule: "C-5",
+        rule: "C-5b",
         message: `Unknown module '${mod}' in active_modules`,
         code: "UNKNOWN_MODULE",
       });
@@ -194,7 +194,7 @@ export function validateConsistency(
       for (const allowed of allowedPaths2) {
         if (allowed.startsWith(denied) && allowed !== denied) {
           errors.push({
-            rule: "C-6",
+            rule: "C-6b",
             message: `Delegation scope conflict: allowed_path '${allowed}' is nested under denied_path '${denied}'`,
             code: "DELEGATION_SCOPE_CONFLICT",
           });
