@@ -2062,23 +2062,21 @@ Pre-release versions MUST be clearly marked as pre-release in the target package
 | Tag format | `v{MAJOR}.{MINOR}.{PATCH}` (e.g., `v1.2.0`) |
 | Pre-release tags | `v{MAJOR}.{MINOR}.{PATCH}-{stage}.{n}` (e.g., `v1.2.0-beta.1`) |
 | Signing | Signed tags (GPG or SSH) RECOMMENDED for all releases, REQUIRED for MAJOR releases |
-| Tag target | Tags MUST point to the exact commit that was released — on `main` or on a `release/` branch (see §16.6) |
+| Tag target | Tags MUST point to the exact commit on `main` that was released |
 | Immutability | Once a tag is pushed, it MUST NOT be moved or deleted (exception: pre-release tags may be replaced) |
 
 ### 16.6 Branch Model
 
 ```
-main           ← integration branch (latest code, not necessarily "released")
+main           ← release branch (all releases are tagged here)
   │
   ├── feature/CHK-17-new-check    ← feature branch (short-lived)
-  ├── fix/budget-race-condition   ← bugfix branch (short-lived)
-  └── release/v1.3.0             ← optional release branch (for stabilization before tagging)
+  └── fix/budget-race-condition   ← bugfix branch (short-lived)
 ```
 
-- **`main`** is the integration branch. All approved changes from both streams land here.
+- **`main`** is the release branch. All approved changes from both streams land here, and all release tags are created on `main`.
 - **Feature branches** are short-lived and merge to `main` via PR (Stream A) or direct push (Stream B).
-- **Release branches** (`release/v{X}.{Y}.{Z}`) are optional. Use them when the architecture team needs to stabilize a release while development continues on `main`. Cherry-pick fixes from `main` into the release branch, then tag from it.
-- **No long-lived `develop` branch.** The `main` branch serves as the single integration point.
+- **No long-lived `develop` or `release/*` branches.** The `main` branch is the single source of truth for both integration and releases. When the architecture team decides to cut a release, they tag the current HEAD of `main`.
 
 ### 16.7 Guide Version Compatibility
 
@@ -2101,7 +2099,20 @@ CI pipelines MUST enforce conformance test passage before any release. The full 
 
 ### 16.9 CHANGELOG Format
 
-Every SDK repository MUST maintain a `CHANGELOG.md` in the repository root, following the [Keep a Changelog](https://keepachangelog.com) format:
+Every SDK repository MUST maintain a `CHANGELOG.md` in the repository root, following the [Keep a Changelog](https://keepachangelog.com) format.
+
+**Required section headers** (use only those that apply to a given release):
+
+| Section | Content |
+|---------|---------|
+| `### Added` | New features, new conformance tests, new adapter support |
+| `### Changed` | Changes to existing functionality, breaking changes (mark with `(**BREAKING**)`) |
+| `### Deprecated` | Features that will be removed in a future release |
+| `### Removed` | Features removed in this release |
+| `### Fixed` | Bug fixes |
+| `### Security` | Vulnerability fixes, security improvements |
+
+**Example:**
 
 ```markdown
 # Changelog
@@ -2139,6 +2150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When the architecture team cuts a release, `[Unreleased]` is renamed to the new version with the release date, and a fresh `[Unreleased]` section is added.
 - Breaking changes MUST be marked with `(**BREAKING**)` in the entry.
 - Each entry is a short, human-readable sentence (not a commit hash or PR number).
+- Only include section headers that have entries — omit empty sections.
 
 ### 16.10 Release Checklist
 
@@ -2156,7 +2168,7 @@ The architecture team follows this ordered checklist when cutting a release:
        - .NET: Directory.Build.props / .csproj
 5. [ ] Guide version compatibility constant updated (if guide version changed)
 6. [ ] Board of Trustees reviews the release
-7. [ ] Signed git tag created: git tag -s vX.Y.Z (on main or release branch per §16.6)
+7. [ ] Signed git tag created on main: git tag -s vX.Y.Z
 8. [ ] Package published to registry:
        - Python → PyPI
        - TypeScript → npm (@gauth/sdk)
