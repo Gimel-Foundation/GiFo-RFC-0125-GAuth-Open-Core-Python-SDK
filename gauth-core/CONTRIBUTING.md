@@ -9,7 +9,7 @@ GAuth SDK repositories accept contributions through two streams:
 - **Community PRs (Stream A):** External developers submit pull requests targeting `main` on GitHub. These are reviewed and approved by the Gimel Foundation Board of Trustees for code quality, spec alignment, license compliance, and security.
 - **Architecture team pushes (Stream B):** The Gimel architecture team pushes changes from the Replit development sandbox to the `replit` branch. These are merged to `main` via reviewed PR, with the same Board of Trustees review as Stream A.
 
-Both streams merge to `main` through reviewed pull requests — no direct pushes to `main` are allowed. Neither stream automatically triggers a version bump or release. Only the architecture team decides when to cut a new version — version numbers are architectural decisions, not merge counters. See the SDK Implementation Guide §16 and the [Contribution and Release Policy](docs/contribution-and-release-policy.md) for the full workflow.
+Both streams merge to `main` through reviewed pull requests — no direct pushes to `main` are allowed. Neither stream automatically triggers a version bump or release. Only the architecture team decides when to cut a new version — version numbers are architectural decisions, not merge counters. See the SDK Implementation Guide §16 and the [Contribution and Release Policy](../docs/contribution-and-release-policy.md) for the full workflow.
 
 ## Development Setup
 
