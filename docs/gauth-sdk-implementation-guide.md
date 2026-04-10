@@ -1998,7 +1998,22 @@ The Excluded Components (Type C adapter implementations) are **outside the scope
 - Contributors to Open Core components license their work under MPL 2.0. Contributions to Excluded Components require a separate Contributor License Agreement (CLA) with the Gimel Foundation.
 - For proprietary licensing inquiries: licensing@gimel.foundation
 
-### 15.7 Cross-Language Consistency
+### 15.7 CONTRIBUTING.md Template Requirements
+
+Every SDK repository MUST include a `CONTRIBUTING.md` that covers:
+
+1. **Contribution streams** — Describe Stream A (community PRs, Board of Trustees review) and Stream B (architecture team pushes)
+2. **Development setup** — Language-specific clone, install, and test instructions
+3. **Code style** — Language-specific conventions and linting requirements
+4. **Pull request process** — Fork, branch, test, CHANGELOG update, submit PR, Board review
+5. **Adapter development** — Reference to Type A/B adapter interfaces; note that Type C implementations are proprietary
+6. **Excluded Components and CLA** — Explicit statement that contributions to Type C adapter implementations require a CLA with the Gimel Foundation
+7. **License** — MPL 2.0 for Open Core contributions, with reference to ADDITIONAL-TERMS.md
+8. **Versioning policy reference** — Link to §16 of this guide for release and versioning rules
+
+The Python SDK's `CONTRIBUTING.md` serves as the reference template. Other language SDKs adapt the development setup and code style sections while keeping the governance, legal, and versioning sections identical.
+
+### 15.8 Cross-Language Consistency
 
 All SDK repositories MUST maintain:
 
@@ -2053,7 +2068,7 @@ Pre-release versions follow semver pre-release syntax:
 | Beta | `v1.2.0-beta.1` | Feature-complete, seeking feedback |
 | Release candidate | `v1.2.0-rc.1` | Final validation before release |
 
-Pre-release versions MUST be clearly marked as pre-release in the target package registry so that default package manager installs (e.g., `pip install gauth-sdk`, `npm install @gauth/sdk`) do not resolve to a pre-release version. Each ecosystem has its own mechanism for this — consult the registry documentation. Pre-release versions MAY also be published to test registries or GitHub Packages.
+Pre-release versions MUST NOT be published to production package registries as the default/latest version. Default package manager installs (e.g., `pip install gauth-sdk`, `npm install @gauth/sdk`) MUST NOT resolve to a pre-release version. Each registry ecosystem has its own mechanism for pre-release channels — use the appropriate mechanism to ensure pre-release versions are opt-in only. Pre-release versions MAY also be published to test registries or GitHub Packages.
 
 ### 16.5 Git Tagging Convention
 
@@ -2158,24 +2173,25 @@ The architecture team follows this ordered checklist when cutting a release:
 
 ```
 1. [ ] Architecture team decides a release is warranted
-2. [ ] All conformance tests pass on the target commit
-3. [ ] CHANGELOG.md updated: [Unreleased] → [X.Y.Z] - YYYY-MM-DD
-4. [ ] Version bumped in package metadata:
+2. [ ] Release commit prepared on a feature branch and merged to main via reviewed PR
+3. [ ] All conformance tests pass on the target commit on main
+4. [ ] CHANGELOG.md updated: [Unreleased] → [X.Y.Z] - YYYY-MM-DD
+5. [ ] Version bumped in package metadata:
        - Python: pyproject.toml / setup.cfg
        - TypeScript: package.json
        - Rust: Cargo.toml
        - Go: tagged (version in go module path for v2+)
        - .NET: Directory.Build.props / .csproj
-5. [ ] Guide version compatibility constant updated (if guide version changed)
-6. [ ] Board of Trustees reviews the release
-7. [ ] Signed git tag created on main: git tag -s vX.Y.Z
-8. [ ] Package published to registry:
+6. [ ] Guide version compatibility constant updated (if guide version changed)
+7. [ ] Board of Trustees reviews the release
+8. [ ] Signed git tag created on main: git tag -s vX.Y.Z
+9. [ ] Package published to registry:
        - Python → PyPI
        - TypeScript → npm (@gauth/sdk)
        - Rust → crates.io (gauth-sdk)
        - Go → pkg.go.dev (tagged release)
        - .NET → NuGet (GAuth.Sdk)
-9. [ ] GitHub Release created with CHANGELOG entry as release notes body
+10. [ ] GitHub Release created with CHANGELOG entry as release notes body
 ```
 
 ### 16.11 Breaking Change Communication
@@ -2293,4 +2309,4 @@ All normative schemas are hosted at `gimelfoundation.com`.
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
 | 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (apply after license swap for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. License swap mechanism from MPL 2.0 to Gimel Technologies ToS explicitly documented. Repository legal file obligations and key legal points all SDK repos must make explicit. |
 | 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. |
-| 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: two contribution streams (community PRs reviewed by Board of Trustees, architecture team pushes from sandbox), release authority (architecture team decides versions, Board reviews before tagging), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags, immutable), branch model (main as integration branch, optional release branches, no develop), pre-release version format (alpha/beta/rc), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates, CHANGELOG format (Keep a Changelog), 9-step release checklist, breaking change communication protocol (deprecation notice, migration guide, CHANGELOG marker), Board of Trustees review scope table. Updated §15.1 repo layout: added CHANGELOG.md and updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. |
+| 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: two contribution streams (community PRs reviewed by Board of Trustees pre-merge, architecture team pushes reviewed at release gate), release authority (architecture team decides versions, Board reviews before tagging), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags on main, immutable), branch model (main as release branch, no develop or release branches), pre-release version format (alpha/beta/rc with MUST NOT publish as default), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates, CHANGELOG format (Keep a Changelog with 6 required section headers: Added/Changed/Deprecated/Removed/Fixed/Security), 10-step release checklist (including reviewed PR merge step), breaking change communication protocol (deprecation notice, migration guide, (**BREAKING**) marker), Board of Trustees review scope with explicit Stream A vs release-gate distinction. Added §15.7 CONTRIBUTING.md Template Requirements (8-point canonical template). Updated §15.1 repo layout: added CHANGELOG.md, updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. |
