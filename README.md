@@ -171,6 +171,6 @@ This project is licensed under the [Mozilla Public License 2.0](LICENSE).
 
 See [ADDITIONAL-TERMS.md](ADDITIONAL-TERMS.md) for the full legal text.
 
-For proprietary licensing inquiries: licensing@gimel.foundation
+For proprietary licensing inquiries: info@gimelid.com
 
 Copyright (c) 2024-2026 Gimel Foundation gGmbH i.G.

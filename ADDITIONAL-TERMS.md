@@ -104,7 +104,7 @@ For proprietary licensing inquiries regarding Excluded Components:
 
   Gimel Foundation gGmbH i.G.  
   https://gimel.foundation  
-  licensing@gimel.foundation
+  info@gimelid.com
 
 For questions about the Open Core license:
 

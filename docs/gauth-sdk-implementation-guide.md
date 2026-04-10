@@ -1996,7 +1996,7 @@ The Excluded Components (Type C adapter implementations) are **outside the scope
 - Use of any proprietary service or Excluded Component (Type C adapter) triggers a license swap from the MPL 2.0 to the Gimel Technologies Terms of Service, as described in §7 (License & ToS State Machine).
 - The Gimel Technologies Terms of Service are the sole and independent legal basis governing proprietary features. No rights to create, distribute, or offer competing implementations within the three exclusion domains for the GAuth adapter slot system are granted by the MPL 2.0 or any other part of the Open Core license.
 - Contributors to Open Core components license their work under MPL 2.0. Contributions to Excluded Components require a separate Contributor License Agreement (CLA) with the Gimel Foundation.
-- For proprietary licensing inquiries: licensing@gimel.foundation
+- For proprietary licensing inquiries: info@gimelid.com
 
 ### 15.7 CONTRIBUTING.md Template Requirements
 

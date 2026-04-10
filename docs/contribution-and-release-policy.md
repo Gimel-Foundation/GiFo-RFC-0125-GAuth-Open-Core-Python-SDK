@@ -191,7 +191,7 @@ Every commit on `main` is traceable to a PR. Every PR has a CI record. Every rel
 
 Contributions to Excluded Components (Type C adapter implementations for slots 5, 6, and 7) require a separate Contributor License Agreement (CLA) with the Gimel Foundation, regardless of which stream the contribution comes through. See `ADDITIONAL-TERMS.md` for the three proprietary exclusions.
 
-Contact: licensing@gimel.foundation
+Contact: info@gimelid.com
 
 ---
 

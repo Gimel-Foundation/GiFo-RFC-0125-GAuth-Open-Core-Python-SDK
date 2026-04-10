@@ -43,7 +43,7 @@ Type C adapter implementations (AI-Enabled Governance, Web3 Identity, DNA-Based 
 
 Contributions to the Open Core components are welcome and are licensed under the MPL 2.0 as stated in the `LICENSE` file.
 
-Contributions that fall within the scope of the Excluded Components (Type C adapter implementations for slots 5, 6, and 7) require a separate Contributor License Agreement (CLA) with the Gimel Foundation. Contact licensing@gimel.foundation for CLA inquiries.
+Contributions that fall within the scope of the Excluded Components (Type C adapter implementations for slots 5, 6, and 7) require a separate Contributor License Agreement (CLA) with the Gimel Foundation. Contact info@gimelid.com for CLA inquiries.
 
 ## License
 
