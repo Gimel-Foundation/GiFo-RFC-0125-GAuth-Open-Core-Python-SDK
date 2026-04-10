@@ -2,7 +2,7 @@
 
 **Applies to:** GAuth Open Core  
 **Base License:** Mozilla Public License 2.0 (MPL 2.0)  
-**Copyright:** (c) 2024-2026 Gimel Foundation e.V.
+**Copyright:** (c) 2024-2026 Gimel Foundation gGmbH i.G.
 
 ---
 
@@ -102,7 +102,7 @@ Foundation.
 
 For proprietary licensing inquiries regarding Excluded Components:
 
-  Gimel Foundation e.V.  
+  Gimel Foundation gGmbH i.G.  
   https://gimel.foundation  
   licensing@gimel.foundation
 

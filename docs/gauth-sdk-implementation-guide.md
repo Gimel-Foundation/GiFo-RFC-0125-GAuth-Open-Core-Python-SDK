@@ -1,12 +1,12 @@
 # GAuth SDK Implementation Guide
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** 2026-04-10
 **Authors:** Gimel Foundation — Auth Team
 **Audience:** SDK Teams (Python, TypeScript, Rust, Go, .NET)
 **Status:** DRAFT — SDK Team Review
 **License:** Mozilla Public License 2.0 (open interfaces); Gimel Technologies Terms of Service (Type C proprietary interfaces)
-**Builds on:** GiFo-RFC 0116 v2.2, GiFo-RFC 0117 v1.1, GiFo-RFC 0118 v1.1, GAuth Internal Spec v1.2
+**Builds on:** GiFo-RFC 0116 v2.2, GiFo-RFC 0117 v1.2, GiFo-RFC 0118 v1.1, GAuth Internal Spec v1.2
 
 ---
 
@@ -21,19 +21,20 @@ The guide does not redefine the RFCs — it bridges the gap between the protocol
 ## Table of Contents
 
 1. [Architecture Overview](#1-architecture-overview)
-2. [Adapter Type System](#2-adapter-type-system)
-3. [Adapter Interface Reference](#3-adapter-interface-reference)
-4. [Sealed Registration Protocol](#4-sealed-registration-protocol)
-5. [Tariff Gating Matrix](#5-tariff-gating-matrix)
-6. [License & ToS State Machine](#6-license--tos-state-machine)
-7. [PEP SDK Integration](#7-pep-sdk-integration)
-8. [Management API Client](#8-management-api-client)
-9. [S2S Authentication](#9-s2s-authentication)
-10. [Conformance Test Suite](#10-conformance-test-suite)
-11. [RFC Cross-Reference Index](#11-rfc-cross-reference-index)
-12. [Language-Specific Notes](#12-language-specific-notes)
-13. [Open Core Exclusions](#13-open-core-exclusions)
-14. [GitHub Repository Structure](#14-github-repository-structure)
+2. [Integration Patterns & Deployment Topology](#2-integration-patterns--deployment-topology)
+3. [Adapter Type System](#3-adapter-type-system)
+4. [Adapter Interface Reference](#4-adapter-interface-reference)
+5. [Sealed Registration Protocol](#5-sealed-registration-protocol)
+6. [Tariff Gating Matrix](#6-tariff-gating-matrix)
+7. [License & ToS State Machine](#7-license--tos-state-machine)
+8. [PEP SDK Integration](#8-pep-sdk-integration)
+9. [Management API Client](#9-management-api-client)
+10. [S2S Authentication](#10-s2s-authentication)
+11. [Conformance Test Suite](#11-conformance-test-suite)
+12. [RFC Cross-Reference Index](#12-rfc-cross-reference-index)
+13. [Language-Specific Notes](#13-language-specific-notes)
+14. [Open Core Exclusions](#14-open-core-exclusions)
+15. [GitHub Repository Structure](#15-github-repository-structure)
 
 ---
 
@@ -102,9 +103,176 @@ GAuth uses a 7-slot connector model. Each slot has a fixed position, a typed ada
 
 ---
 
-## 2. ADAPTER TYPE SYSTEM
+## 2. INTEGRATION PATTERNS & DEPLOYMENT TOPOLOGY
 
-### 2.1 Type Classification
+### 2.1 Overview
+
+Organizations adopting GAuth face a deployment question: how does the GAuth authorization stack integrate with their existing infrastructure? The answer depends on whether they have an existing OAuth/OIDC stack they need to preserve, whether they run their own API gateway, or whether they are starting from scratch.
+
+This section defines three integration patterns. Each pattern maps to a specific SDK deliverable. The adapter contract for all three patterns is defined by the RFCs — no additional specification layer is needed. The adapter is thin glue code that connects an OAuth server's extensibility mechanism to the Core SDK's APIs.
+
+### 2.2 Sidecar Pattern — Claims Provider SDK
+
+**Description:** The Sidecar pattern is for organizations that already have an OAuth/OIDC server in production and do not want to replace it. A claims provider SDK plugs into the existing server's extensibility mechanism and injects PoA claims into the JWT at issuance time. The SDK takes a validated mandate from the Management API (RFC 0118) and serializes it into the correct JWT claims structure per RFC 0116 §4.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Existing OAuth/OIDC Server                              │
+│  (Keycloak, Azure AD, Okta, Auth0, Zitadel, etc.)       │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Claims Provider SDK (Sidecar)                     │  │
+│  │                                                    │  │
+│  │  1. Intercept token issuance event                 │  │
+│  │  2. Fetch validated mandate (RFC 0118 Management)  │  │
+│  │  3. Serialize PoA into JWT claims (RFC 0116 §4)    │  │
+│  │  4. Compute scope_checksum (RFC 0116 §4.4)         │  │
+│  │  5. Return enriched claims to OAuth server         │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  OAuth server issues JWT with PoA claims embedded        │
+└──────────────────────┬──────────────────────────────────┘
+                       │ JWT with PoA claims
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  PEP Middleware (Gateway or application-level)           │
+│  Enforces PoA per RFC 0117 §9                            │
+└─────────────────────────────────────────────────────────┘
+```
+
+**When to use:**
+- The organization has an existing OAuth/OIDC deployment they cannot or do not want to replace.
+- The existing server supports extensibility (protocol mappers, claims transformations, inline hooks, or Actions).
+- The organization wants to add GAuth authorization as an overlay on top of their existing identity infrastructure.
+
+**SDK deliverable:** A claims provider library that implements the `OAuthEngineAdapter` interface (§4.2) and provides provider-specific plugins for connecting to each OAuth server's extension mechanism.
+
+**Key constraint:** The adapter contract is fully defined by RFC 0116 §8. The sidecar SDK does not define a new protocol — it translates the existing adapter interface into the OAuth server's specific extensibility API.
+
+### 2.3 Gateway Pattern — PEP Middleware
+
+**Description:** The Gateway pattern is for organizations that want to enforce PoA credentials at their API gateway without modifying their application code. A PEP middleware SDK sits at the gateway and evaluates incoming requests against the PoA claims carried in the JWT. This is an embeddable implementation of RFC 0117's 16-check pipeline.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Agent / Service (carrying JWT with PoA claims)          │
+└──────────────────────┬──────────────────────────────────┘
+                       │ Request + JWT
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  API Gateway (Express, Go net/http, NGINX, Envoy, etc.) │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  PEP Middleware SDK (Gateway)                      │  │
+│  │                                                    │  │
+│  │  1. Extract JWT from Authorization header          │  │
+│  │  2. Validate credential (RFC 0116 §10.2)           │  │
+│  │  3. Execute 16-check pipeline (RFC 0117 §9)        │  │
+│  │  4. Return PERMIT / DENY / CONSTRAIN               │  │
+│  │  5. Attach enforcement decision to request context │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  Gateway routes request to backend if PERMIT/CONSTRAIN   │
+└──────────────────────┬──────────────────────────────────┘
+                       │ Enriched request
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  Backend Service (receives pre-authorized request)       │
+└─────────────────────────────────────────────────────────┘
+```
+
+**When to use:**
+- The organization already has an API gateway or reverse proxy.
+- Enforcement should happen at the network edge, not in application code.
+- The backend services should receive pre-authorized requests without needing to understand GAuth internals.
+
+**SDK deliverable:** Framework-specific middleware libraries:
+- **Express/Node.js:** `gauthPepMiddleware()` — Express middleware function
+- **Go net/http:** `gauth.PEPHandler()` — Go HTTP middleware
+- **NGINX/OpenResty:** Lua module for NGINX access phase
+- **Envoy:** External authorization filter (ext_authz gRPC)
+
+**Key constraint:** The PEP middleware implements the enforcement contract defined by RFC 0117 §9. The 16-check pipeline, violation codes, and decision semantics are identical regardless of the gateway framework.
+
+### 2.4 Full Stack Pattern — Integrated Bundle
+
+**Description:** The Full Stack pattern is for organizations starting from scratch — greenfield deployments with no existing OAuth stack to preserve. An integrated bundle pre-wires the OAuth engine (Slot 2), the Management API (RFC 0118), and the PEP (RFC 0117) into a single, turnkey deployment.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  GAuth Full Stack Deployment                             │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  OAuth Engine │  │ Management   │  │    PEP       │  │
+│  │  (Ory Hydra)  │  │ API          │  │  (RFC 0117)  │  │
+│  │  (RFC 0116)   │  │ (RFC 0118)   │  │              │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  │
+│         │                  │                  │          │
+│         └──────────────────┼──────────────────┘          │
+│                            │                             │
+│                   Core SDK (shared)                      │
+│                   PoA schema validation                  │
+│                   JWT claims serialization               │
+│                   16-check enforcement pipeline          │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│  Agent / Service (issues, enforces, manages mandates)    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**When to use:**
+- Greenfield deployment with no existing OAuth/OIDC server.
+- The organization wants a single deployment that handles token issuance, mandate management, and enforcement.
+- Development and testing environments where a complete, self-contained GAuth stack is needed.
+
+**SDK deliverable:** A deployment bundle with:
+- Pre-configured Ory Hydra as the OAuth engine (Type A adapter)
+- Management API server implementing RFC 0118
+- PEP service implementing RFC 0117
+- Docker Compose or Helm chart for orchestration
+
+**Key constraint:** The Full Stack bundle uses the same adapter interfaces as the Sidecar and Gateway patterns. An organization that starts with the Full Stack can later migrate to Sidecar (plugging their own OAuth server) or Gateway (deploying PEP at the edge) without changing the Core SDK.
+
+### 2.5 OAuth Provider Compatibility Matrix
+
+The Sidecar pattern requires provider-specific plugins. The following table maps common OAuth/OIDC providers to their extensibility mechanism and the corresponding SDK adapter:
+
+| Provider | License | Extensibility Mechanism | Pattern Fit | SDK Adapter | Priority |
+|----------|---------|------------------------|-------------|-------------|----------|
+| **Ory Hydra** | Apache 2.0 | Custom consent/login handler, token hook | Full Stack (primary), Sidecar | `HydraClaimsProvider` | P0 — reference implementation |
+| **Keycloak** | Apache 2.0 | Protocol mapper plugin (SPI) | Sidecar | `KeycloakProtocolMapper` | P1 — largest enterprise installed base |
+| **Azure AD / Entra ID** | Proprietary (SaaS) | Claims transformation via custom policies, token issuance policies | Sidecar | `AzureADClaimsTransformer` | P2 — Microsoft-dominant enterprises |
+| **Okta** | Proprietary (SaaS) | Inline hooks (token) | Sidecar | `OktaInlineHook` | P2 — SaaS-heavy organizations |
+| **Auth0** | Proprietary (SaaS) | Actions (post-login, M2M credentials) | Sidecar | `Auth0Action` | P2 — SaaS-heavy organizations |
+| **Zitadel** | Apache 2.0 | Actions (complement token) | Sidecar | `ZitadelAction` | P3 — emerging alternative |
+
+**Prioritization rationale:**
+- **P0 (Hydra):** Go-native, headless, highly extensible, Apache 2.0, aligns with GAuth licensing. Natural fit for the Full Stack reference deployment. Build and test the core adapter interface against Hydra first.
+- **P1 (Keycloak):** Dominant in enterprise Java/Jakarta EE environments. The protocol mapper SPI is well-documented and widely used. Covers the largest single-provider segment of the enterprise market.
+- **P2 (Azure AD, Okta, Auth0):** SaaS providers — the SDK ships adapter-only since you don't control the OAuth engine. These are claims enrichment adapters that inject PoA claims via the provider's hook/action mechanism.
+- **P3 (Zitadel):** Newer entrant with growing adoption. Lower priority but architecturally clean.
+
+**The SDK does not need to ship adapters for all providers on day one.** The architecture supports them via a clean adapter interface. Build the core once (the `OAuthEngineAdapter` interface from §4.2), write thin adapters per provider.
+
+### 2.6 Adapter Interface Unification
+
+All three integration patterns converge on the same adapter interfaces defined in the RFCs:
+
+| Pattern | OAuth Engine (RFC 0116 §8) | PEP (RFC 0117 §9) | Management API (RFC 0118) |
+|---------|---------------------------|--------------------|-----------------------------|
+| **Sidecar** | Claims provider SDK implements `OAuthEngineAdapter` | External — deployed separately (Gateway or application-level) | External — calls Management API endpoints |
+| **Gateway** | External — existing OAuth server issues tokens | PEP middleware implements 16-check pipeline | External — calls Management API endpoints |
+| **Full Stack** | Bundled Hydra implements `OAuthEngineAdapter` | Bundled PEP service | Bundled Management API server |
+
+**The RFCs are the interoperability guarantee.** Any adapter that produces RFC 0116-conformant tokens and validates through RFC 0118's pipeline is conformant by definition. The adapters are integration plumbing, not protocol-level components. No additional specification layer is needed beyond the three published RFCs.
+
+---
+
+## 3. ADAPTER TYPE SYSTEM
+
+### 3.1 Type Classification
 
 | Type | License | User Replaceable | Attestation | Cost |
 |------|---------|-----------------|-------------|------|
@@ -115,7 +283,7 @@ GAuth uses a 7-slot connector model. Each slot has a fixed position, a typed ada
 
 **SDK obligation:** SDKs MUST model all four types. Type D is not directly callable by SDK consumers but the SDK must understand that billing operations are triggered automatically when Gimel-hosted adapters are active.
 
-### 2.2 Adapter Lifecycle States
+### 3.2 Adapter Lifecycle States
 
 ```
 ┌──────────┐   register()   ┌──────────────┐   satisfyAttestation()   ┌────────┐
@@ -137,7 +305,7 @@ GAuth uses a 7-slot connector model. Each slot has a fixed position, a typed ada
 - **active**: Adapter registered, attested (if required), and healthy.
 - **error**: Health check failed. Automatic recovery on next successful health check.
 
-### 2.3 Default Gimel Implementations
+### 3.3 Default Gimel Implementations
 
 | Slot | Default Implementation | Label |
 |------|----------------------|-------|
@@ -151,11 +319,11 @@ GAuth uses a 7-slot connector model. Each slot has a fixed position, a typed ada
 
 ---
 
-## 3. ADAPTER INTERFACE REFERENCE
+## 4. ADAPTER INTERFACE REFERENCE
 
 Each adapter interface defines a set of methods that every implementation must provide. All methods are asynchronous and return typed results. Every adapter MUST implement `healthCheck()`.
 
-### 3.1 PolicyDecisionAdapter (Slot 1 — Internal)
+### 4.1 PolicyDecisionAdapter (Slot 1 — Internal)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** Internal Spec §1, RFC 0117 §9
@@ -185,7 +353,7 @@ healthCheck() → AdapterHealthResult
 - `evaluateMandate()` performs full mandate validation including scope, permissions, and profile matching.
 - `validateCeilings()` checks the 14-attribute ceiling table (7 stateless + 7 stateful) per Internal Spec §3.2.
 
-### 3.2 OAuthEngineAdapter (Slot 2 — Type A)
+### 4.2 OAuthEngineAdapter (Slot 2 — Type A)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** RFC 0116 §8
@@ -219,7 +387,7 @@ healthCheck() → AdapterHealthResult
 - The default Gimel implementation connects to Ory Hydra. User-provided implementations connect to any OIDC server (Keycloak, Auth0, Zitadel, etc.).
 - `issueToken()` MUST throw on failure (fail-closed). Never return a partial or empty token.
 
-### 3.3 FoundryAdapter (Slot 3 — Type B)
+### 4.3 FoundryAdapter (Slot 3 — Type B)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** RFC 0116 §9.3
@@ -247,7 +415,7 @@ healthCheck() → AdapterHealthResult
 - `getAgentCatalog()` returns an empty array (not an error) when the foundry is not connected.
 - Foundry and Wallet connectors use retry with exponential backoff for transient failures (max 1 retry, per slot config).
 
-### 3.4 WalletAdapter (Slot 4 — Type B)
+### 4.4 WalletAdapter (Slot 4 — Type B)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** RFC 0116 §9.3, §11 (EUDI compatibility)
@@ -281,7 +449,7 @@ healthCheck() → AdapterHealthResult
 - `storeCredential()`, `presentCredential()`, `deleteCredential()`, and `generateSelectiveDisclosure()` MUST throw when the connector is unavailable (fail-closed).
 - `listCredentials()` returns an empty array (not an error) when the connector is unavailable.
 
-### 3.5 GovernanceAdapter (Slot 5 — Type C)
+### 4.5 GovernanceAdapter (Slot 5 — Type C)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** Internal Spec §1.5.1
@@ -306,7 +474,7 @@ healthCheck() → AdapterHealthResult
 - When AI governance slot is null, the system falls back to rule-based-only evaluation (first pass only, no AI second pass).
 - The internal Gimel implementation routes to G-Agent 1 (G-LLM), G-Agent 2 (G-NLP), and G-Agent 3 (Architecture Compliance).
 
-### 3.6 Web3IdentityAdapter (Slot 6 — Type C)
+### 4.6 Web3IdentityAdapter (Slot 6 — Type C)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** Internal Spec §1.5.2
@@ -326,7 +494,7 @@ healthCheck() → AdapterHealthResult
 
 **Status:** Phase 2 — interface defined, implementation pending.
 
-### 3.7 DNAIdentityAdapter (Slot 7 — Type C)
+### 4.7 DNAIdentityAdapter (Slot 7 — Type C)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** Internal Spec §1.5.3
@@ -345,7 +513,7 @@ healthCheck() → AdapterHealthResult
 
 **Status:** Phase 3 — interface defined, implementation pending.
 
-### 3.8 BillingAdapter (Type D — Internal)
+### 4.8 BillingAdapter (Type D — Internal)
 
 **Source:** `server/integrations/connectors/types.ts`
 **Normative:** Internal Spec §1.6
@@ -370,13 +538,13 @@ healthCheck() → AdapterHealthResult
 
 ---
 
-## 4. SEALED REGISTRATION PROTOCOL
+## 5. SEALED REGISTRATION PROTOCOL
 
-### 4.1 Overview
+### 5.1 Overview
 
 Adapter registration is "sealed" — once a Type C adapter is registered, it cannot be replaced without re-attestation. This protects Gimel's proprietary IP and ensures only certified implementations connect.
 
-### 4.2 Registration Flow
+### 5.2 Registration Flow
 
 Registration is performed programmatically via the `ConnectorSlotRegistry.register()` method. The registry enforces tariff gating and attestation requirements at registration time.
 
@@ -408,7 +576,7 @@ Caller (platform startup or admin action)
 
 **Implementation note:** In the current release, adapter registration is performed server-side during platform initialization (see `initializeDefaultAdapters()` in `default-adapters.ts`). HTTP-based adapter registration endpoints for user-provided adapters are planned for a future release. SDKs SHOULD model the registration interface to support both programmatic and HTTP-based registration.
 
-### 4.3 Type C Attestation — Ed25519 Sealed Manifest
+### 5.3 Type C Attestation — Ed25519 Sealed Manifest
 
 Type C adapters use Ed25519 manifest signing for sealed registration. Each adapter ships with a signed manifest that proves it was built and authorized by Gimel. The GAuth runtime verifies this manifest before allowing the adapter to activate.
 
@@ -424,7 +592,7 @@ Type C adapters use Ed25519 manifest signing for sealed registration. Each adapt
 | Key storage | HSM (production); file-based (development) |
 | Max validity | 1 year from `issued_at` |
 
-#### 4.3.1 Manifest JSON Schema
+#### 5.3.1 Manifest JSON Schema
 
 Every Type C adapter must include a signed manifest conforming to this schema:
 
@@ -529,7 +697,7 @@ Every Type C adapter must include a signed manifest conforming to this schema:
 }
 ```
 
-#### 4.3.2 Signing Procedure (Gimel Build Pipeline)
+#### 5.3.2 Signing Procedure (Gimel Build Pipeline)
 
 ```
 1. Build the Type C adapter binary/bundle
@@ -545,7 +713,7 @@ Every Type C adapter must include a signed manifest conforming to this schema:
 7. Bundle the manifest with the adapter
 ```
 
-#### 4.3.3 Verification Algorithm (GAuth Runtime)
+#### 5.3.3 Verification Algorithm (GAuth Runtime)
 
 When a Type C adapter registers with the GAuth runtime:
 
@@ -575,7 +743,7 @@ When a Type C adapter registers with the GAuth runtime:
 8. If any fail → registration rejected, status unchanged, event logged
 ```
 
-#### 4.3.4 Trusted Namespace Rules
+#### 5.3.4 Trusted Namespace Rules
 
 | Rule | Description |
 |------|-------------|
@@ -584,7 +752,7 @@ When a Type C adapter registers with the GAuth runtime:
 | Collision prevention | The runtime rejects manifests where `namespace` + `adapter_version` matches an already-registered adapter unless the existing adapter is being explicitly replaced (requires admin authority). |
 | Spoofing rejection | Manifests claiming `@gimel/*` but signed with an unknown public key are rejected. Only keys in the Gimel trusted key set are accepted. |
 
-#### 4.3.5 Gimel Trusted Key Set
+#### 5.3.5 Gimel Trusted Key Set
 
 The GAuth runtime embeds Gimel's Ed25519 public keys for manifest verification:
 
@@ -597,7 +765,7 @@ The GAuth runtime embeds Gimel's Ed25519 public keys for manifest verification:
 
 **Key rotation:** When rotating keys, both the old and new key are valid during the overlap period. After the overlap, the old key is added to the revoked-keys list.
 
-#### 4.3.6 Revocation
+#### 5.3.6 Revocation
 
 | Mechanism | Speed | Use Case |
 |-----------|-------|----------|
@@ -611,7 +779,7 @@ The GAuth runtime maintains in-memory revocation lists, refreshed from `https://
 
 **Current implementation status:** The Ed25519 manifest verification protocol is fully specified above. The current runtime implementation uses `satisfyAttestation(slotName)` as a programmatic flag (boolean state transition) that is called when license acceptance is confirmed via `POST /api/connectors/:slotName/accept-license`. SDK implementations SHOULD build the full Ed25519 manifest verification pipeline now; the flag-based fallback will be removed once all Type C adapters ship with signed manifests.
 
-### 4.4 Registration Without Attestation (Type A/B)
+### 5.4 Registration Without Attestation (Type A/B)
 
 Type A and Type B adapters do not require attestation. The registration flow is:
 
@@ -620,7 +788,7 @@ Type A and Type B adapters do not require attestation. The registration flow is:
 3. Verify slot is not mandatory (cannot unregister mandatory slots)
 4. Register adapter directly → `status = "active"`
 
-### 4.5 Unregistration
+### 5.5 Unregistration
 
 ```
 POST /api/connectors/:slotName/unregister
@@ -630,7 +798,7 @@ POST /api/connectors/:slotName/unregister
 - Unregistration resets the slot to `null` status with `implementationLabel = "None"`.
 - Health check history is cleared.
 
-### 4.6 Attestation Satisfaction Endpoint
+### 5.6 Attestation Satisfaction Endpoint
 
 ```
 POST /api/connectors/:slotName/accept-license
@@ -644,9 +812,9 @@ For Type C slots, this endpoint:
 
 ---
 
-## 5. TARIFF GATING MATRIX
+## 6. TARIFF GATING MATRIX
 
-### 5.1 Tariff Codes
+### 6.1 Tariff Codes
 
 | Code | Name | Description |
 |------|------|-------------|
@@ -659,7 +827,7 @@ For Type C slots, this endpoint:
 
 **Open Core design principle:** Tariff O provides the full PEP enforcement pipeline (all 16 checks per RFC 0117 §9.1) using **rule-based evaluation only**. AI-powered governance (G-Agent 1, G-Agent 2, G-Agent 3) is not available at this tier — the `ai_governance` slot is always `null`. This means the system operates without an AI second pass: every review (permissions, restrictions, threats) is evaluated by rules alone. This is by design — Open Core users get production-grade authorization without any dependency on Gimel-hosted AI services.
 
-### 5.2 Deployment Policy Matrix
+### 6.2 Deployment Policy Matrix
 
 This matrix defines adapter availability per tariff per adapter type. SDK implementations MUST enforce these gates.
 
@@ -686,7 +854,7 @@ This matrix defines adapter availability per tariff per adapter type. SDK implem
 
 The Billing adapter (Type D) is **never directly registered or controlled by SDK consumers**. It activates automatically based on Gimel-hosted service usage. Billing terms are governed by your service agreement.
 
-### 5.3 Availability Code Semantics
+### 6.3 Availability Code Semantics
 
 | Code | Meaning | SDK Behavior |
 |------|---------|-------------|
@@ -698,7 +866,7 @@ The Billing adapter (Type D) is **never directly registered or controlled by SDK
 | `null_or_attested_gimel` | Null fallback until attested. | Accept null or attested Gimel adapter. |
 | `null` | Slot not available for this tariff. | Reject all registration attempts. |
 
-### 5.4 Tariff Gate Check Algorithm
+### 6.4 Tariff Gate Check Algorithm
 
 ```
 function checkTariffGate(slotName, tariff):
@@ -732,9 +900,9 @@ function checkTariffGate(slotName, tariff):
 
 ---
 
-## 6. LICENSE & ToS STATE MACHINE
+## 7. LICENSE & ToS STATE MACHINE
 
-### 6.1 Two-Tier ToS Model
+### 7.1 Two-Tier ToS Model
 
 GAuth uses a two-tier Terms of Service model:
 
@@ -745,13 +913,13 @@ GAuth uses a two-tier Terms of Service model:
 
 **Activation gate:** A customer must accept Platform ToS (Tier 1) before any Gimel-hosted service activation, AND accept the relevant Proprietary Service ToS (Tier 2) before each Type C adapter activation.
 
-### 6.2 License States
+### 7.2 License States
 
 Every customer has a license state that determines which adapter types they can access.
 
 | Field | Type | Values |
 |-------|------|--------|
-| `license_type` | string | `"apache_2_0"` (default) or `"gimel_tos"` |
+| `license_type` | string | `"mpl_2_0"` (default) or `"gimel_tos"` |
 | `license_accepted_at` | timestamp | When Platform ToS was accepted (null if not accepted) |
 | `license_version` | string | Version of Platform ToS accepted (e.g., `"2026.1"`) |
 
@@ -763,11 +931,11 @@ Per-service acceptance is tracked independently per Type C slot:
 | `service_tos_version` | Per slot | Version of per-service ToS accepted |
 | `service_tos_accepted_at` | Per slot | Timestamp of acceptance |
 
-### 6.3 State Machine
+### 7.3 State Machine
 
 ```
 ┌──────────────────────────────────────────┐
-│  license_type: apache_2_0                 │
+│  license_type: mpl_2_0                    │
 │  (default — new customer)                 │
 │                                           │
 │  Access: Self-hosted only (no Gimel services) │
@@ -823,7 +991,7 @@ Per-service acceptance is tracked independently per Type C slot:
 └──────────────────────────────────────────┘
 ```
 
-### 6.4 ToS Version Updates and Re-Acceptance
+### 7.4 ToS Version Updates and Re-Acceptance
 
 When Gimel publishes a new version of either ToS tier:
 
@@ -837,20 +1005,20 @@ When Gimel publishes a new version of either ToS tier:
 - Attempt to use a Type C adapter after its Proprietary Service ToS version bump
 - New `accept-license` call with updated `license_version` / `service_tos_version`
 
-### 6.5 Key Rules
+### 7.5 Key Rules
 
 - Platform ToS (Tier 1) is **per-customer**. Accepted once, applies to all Gimel-hosted services.
 - Proprietary Service ToS (Tier 2) is **per-customer, per-service**. Each Type C adapter requires separate acceptance.
-- The transition from `apache_2_0` → `gimel_tos` is one-way in practice (no downgrade path while Gimel-hosted adapters are active).
+- The transition from `mpl_2_0` → `gimel_tos` is one-way in practice (no downgrade path while Gimel-hosted adapters are active).
 - When any Gimel-hosted service is activated, the Billing adapter (Type D) automatically becomes active.
 - ToS version bumps require re-acceptance before continued use (fail-closed).
 
-### 6.6 SDK Implementation Requirements
+### 7.6 SDK Implementation Requirements
 
 SDKs MUST:
 
 1. Check `license_type` before attempting any Gimel-hosted adapter operation.
-2. If `license_type === "apache_2_0"` and the user requests a Gimel-hosted service, prompt for Platform ToS acceptance (Tier 1).
+2. If `license_type === "mpl_2_0"` and the user requests a Gimel-hosted service, prompt for Platform ToS acceptance (Tier 1).
 3. For Type C features, additionally check per-service ToS acceptance and prompt if not accepted (Tier 2).
 4. Call `POST /api/connectors/:slotName/accept-license` with `{ license_version, service_tos_version }` to record acceptance.
 5. On ToS version bump detection, block operations and prompt for re-acceptance.
@@ -858,12 +1026,12 @@ SDKs MUST:
 
 ---
 
-## 7. PEP SDK INTEGRATION
+## 8. PEP SDK INTEGRATION
 
-### 7.1 EnforcementRequest Schema
+### 8.1 EnforcementRequest Schema
 
 **Normative:** RFC 0117 §4.1
-**JSON Schema URI:** `https://gimelfoundation.com/schemas/pep/v1.1/enforcement-request.json`
+**JSON Schema URI:** `https://gimelfoundation.com/schemas/pep/v1.2/enforcement-request.json`
 
 SDKs MUST construct enforcement requests conforming to this schema:
 
@@ -904,10 +1072,10 @@ SDKs MUST construct enforcement requests conforming to this schema:
 
 **Action verb format:** `urn:gauth:verb:{domain}:{category}:{action}`
 
-### 7.2 EnforcementDecision Schema
+### 8.2 EnforcementDecision Schema
 
 **Normative:** RFC 0117 §5.1
-**JSON Schema URI:** `https://gimelfoundation.com/schemas/pep/v1.1/enforcement-decision.json`
+**JSON Schema URI:** `https://gimelfoundation.com/schemas/pep/v1.2/enforcement-decision.json`
 
 ```json
 {
@@ -928,7 +1096,7 @@ SDKs MUST construct enforcement requests conforming to this schema:
   "audit": {
     "processing_time_ms": 2.3,
     "pep_version": "1.2.0",
-    "pep_interface_version": "1.1",
+    "pep_interface_version": "1.2",
     "checks_performed": 16,
     "checks_passed": 16,
     "checks_failed": 0
@@ -946,7 +1114,7 @@ SDKs MUST construct enforcement requests conforming to this schema:
 
 **Decision precedence:** Any `fail` with `severity: "error"` → DENY. Warnings do not affect the decision.
 
-### 7.3 16-Check Evaluation Pipeline
+### 8.3 16-Check Evaluation Pipeline
 
 SDKs implementing a local PEP MUST execute checks in this canonical order:
 
@@ -969,7 +1137,7 @@ SDKs implementing a local PEP MUST execute checks in this canonical order:
 | 15 | CHK-15 | Approval | approval_mode | `APPROVAL_REQUIRED` |
 | 16 | CHK-16 | Delegation Chain | delegation_chain, max_depth | `DELEGATION_DEPTH_EXCEEDED`, `DELEGATION_SCOPE_EXCEEDED` |
 
-### 7.4 Enforcement Modes
+### 8.4 Enforcement Modes
 
 | Mode | Description | Latency Target | When Used |
 |------|-------------|---------------|-----------|
@@ -978,7 +1146,7 @@ SDKs implementing a local PEP MUST execute checks in this canonical order:
 
 **Mode selection:** Automatic based on action characteristics per Internal Spec §10.4.
 
-### 7.5 Delegation Chain Enforcement (CHK-16)
+### 8.5 Delegation Chain Enforcement (CHK-16)
 
 CHK-16 implements two-pass scope narrowing:
 
@@ -1003,7 +1171,7 @@ delegatedAt: string
 maxDepthRemaining?: number
 ```
 
-### 7.6 HTTP Binding
+### 8.6 HTTP Binding
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
@@ -1014,9 +1182,9 @@ maxDepthRemaining?: number
 
 **All three decisions (PERMIT, DENY, CONSTRAIN) return HTTP 200.** HTTP 4xx/5xx are reserved for PEP operational errors. SDKs MUST inspect the `decision` field in the response body.
 
-### 7.7 Error Response Schema
+### 8.7 Error Response Schema
 
-**JSON Schema URI:** `https://gimelfoundation.com/schemas/pep/v1.1/enforcement-error.json`
+**JSON Schema URI:** `https://gimelfoundation.com/schemas/pep/v1.2/enforcement-error.json`
 
 | Error Code | HTTP Status | Meaning |
 |-----------|-------------|---------|
@@ -1030,9 +1198,9 @@ maxDepthRemaining?: number
 
 ---
 
-## 8. MANAGEMENT API CLIENT
+## 9. MANAGEMENT API CLIENT
 
-### 8.1 Mandate Lifecycle
+### 9.1 Mandate Lifecycle
 
 **Normative:** RFC 0118 §4
 
@@ -1045,7 +1213,7 @@ maxDepthRemaining?: number
 | Resume | `POST` | `/gauth/mgmt/v1/mandates/:id/resume` | `MandateResumptionRequest` | `MandateResumptionResponse` |
 | Delete | `DELETE` | `/gauth/mgmt/v1/mandates/:id` | `deleted_by` | `DeletionConfirmation` |
 
-### 8.2 Mandate Lifecycle States
+### 9.2 Mandate Lifecycle States
 
 ```
 DRAFT → ACTIVE → SUSPENDED → ACTIVE (resume)
@@ -1066,7 +1234,7 @@ DRAFT → ACTIVE → SUSPENDED → ACTIVE (resume)
 | `BUDGET_EXCEEDED` | Yes | Rejected on CHK-13 |
 | `SUPERSEDED` | Yes | Rejected on CHK-02 |
 
-### 8.3 Mutability Rules
+### 9.3 Mutability Rules
 
 | State | Scope | Budget Ceiling | TTL | Status |
 |-------|-------|----------------|-----|--------|
@@ -1075,7 +1243,7 @@ DRAFT → ACTIVE → SUSPENDED → ACTIVE (resume)
 | `SUSPENDED` | **Immutable** | Additive-only | Additive-only | → ACTIVE, REVOKED, EXPIRED |
 | Terminal | Immutable | Frozen | Frozen | Frozen |
 
-### 8.4 Budget Operations
+### 9.4 Budget Operations
 
 **Normative:** RFC 0118 §7
 
@@ -1093,7 +1261,7 @@ DRAFT → ACTIVE → SUSPENDED → ACTIVE (resume)
 - Budget deduction MUST be atomic. Concurrent consumption reports are serialized.
 - When `remaining_cents` reaches zero → mandate transitions to `BUDGET_EXCEEDED`.
 
-### 8.5 Supersession Atomicity
+### 9.5 Supersession Atomicity
 
 When `activateMandate()` detects an existing ACTIVE mandate for the same `(agent_id, project_id)` pair:
 
@@ -1103,7 +1271,7 @@ When `activateMandate()` detects an existing ACTIVE mandate for the same `(agent
 
 At no point may two mandates be simultaneously ACTIVE for the same `(agent_id, project_id)` pair.
 
-### 8.6 Validation Pipeline
+### 9.6 Validation Pipeline
 
 **Normative:** RFC 0118 §10
 
@@ -1121,9 +1289,9 @@ Every mandate passes a three-stage validation pipeline before acceptance:
 
 ---
 
-## 9. S2S AUTHENTICATION
+## 10. S2S AUTHENTICATION
 
-### 9.1 Dual-Layer Model
+### 10.1 Dual-Layer Model
 
 All GAuth S2S communication uses a mandatory two-layer authentication model:
 
@@ -1132,7 +1300,7 @@ All GAuth S2S communication uses a mandatory two-layer authentication model:
 | 1 — Platform Identity | Identifies the calling service as a Gimel platform member | `X-GAuth-Platform-Key` | Shared `GIMEL_PLATFORM_KEY` |
 | 2 — Payload Integrity | Proves payload has not been tampered with | `X-GAuth-HMAC-Signature` | `HMAC-SHA256(payload, service_secret)` |
 
-### 9.2 HMAC Computation
+### 10.2 HMAC Computation
 
 ```
 signature = HMAC-SHA256(
@@ -1151,7 +1319,7 @@ header = "sha256=" + hex(signature)
 | Billing | `BILLING_WEBHOOK_SECRET` |
 | Wallet | `WALLET_AUTH_SHARED_SECRET` |
 
-### 9.3 SDK Implementation
+### 10.3 SDK Implementation
 
 SDKs MUST provide an S2S client that:
 
@@ -1161,11 +1329,11 @@ SDKs MUST provide an S2S client that:
 
 ---
 
-## 10. CONFORMANCE TEST SUITE
+## 11. CONFORMANCE TEST SUITE
 
 Every SDK MUST pass all conformance tests before certification. Tests are organized by category with unique vector IDs.
 
-### 10.1 Adapter Registration Tests
+### 11.1 Adapter Registration Tests
 
 #### CT-REG-001: Register Type A adapter (OAuth Engine)
 - **Input:** Register `HydraOAuthEngineAdapter` to slot `oauth_engine`, tariff `M`
@@ -1239,7 +1407,7 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Input:** Type C adapter with manifest where `expires_at - issued_at > 365 days`
 - **Expected:** Temporal validation fails (max validity exceeded), registration rejected
 
-### 10.2 PEP Enforcement Tests
+### 11.2 PEP Enforcement Tests
 
 #### CT-PEP-001: PERMIT — all checks pass
 - **Input:** Valid mandate, valid credential, verb in `core_verbs`, resource in `allowed_paths`, sufficient budget
@@ -1365,7 +1533,7 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Input:** `action.region: "US"`, PoA `allowed_regions: ["global"]`
 - **Expected:** CHK-06 `pass` (wildcard matches all regions)
 
-### 10.3 Management API Tests
+### 11.3 Management API Tests
 
 #### CT-MGMT-001: Create mandate in DRAFT
 - **Input:** Valid `MandateCreationRequest` with governance_profile `standard`, budget 10000 cents
@@ -1471,18 +1639,18 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Input:** Create delegation granting verbs not in parent mandate `core_verbs`
 - **Expected:** Error — delegated scope cannot exceed delegator's scope
 
-### 10.4 License & Attestation Tests
+### 11.4 License & Attestation Tests
 
-#### CT-LIC-001: Default license is apache_2_0
+#### CT-LIC-001: Default license is mpl_2_0
 - **Input:** New customer record
-- **Expected:** `license_type: "apache_2_0"`, `license_accepted_at: null`
+- **Expected:** `license_type: "mpl_2_0"`, `license_accepted_at: null`
 
 #### CT-LIC-002: License switch on Type C activation
-- **Input:** Customer with `license_type: "apache_2_0"` calls `accept-license` for `ai_governance`
+- **Input:** Customer with `license_type: "mpl_2_0"` calls `accept-license` for `ai_governance`
 - **Expected:** `license_type: "gimel_tos"`, `license_accepted_at` set, `license_version: "2026.1"`
 
 #### CT-LIC-003: Type C registration blocked without license
-- **Input:** Customer with `license_type: "apache_2_0"` attempts Type C adapter registration
+- **Input:** Customer with `license_type: "mpl_2_0"` attempts Type C adapter registration
 - **Expected:** Registration blocked, prompt for ToS acceptance
 
 #### CT-LIC-004: Attestation satisfaction transitions pending → active
@@ -1494,7 +1662,7 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Expected:** `{ success: false, error: "Slot foundry does not require attestation" }`
 
 #### CT-LIC-006: Platform ToS required before Gimel-hosted service
-- **Input:** Customer with `license_type: "apache_2_0"` attempts to use Gimel-hosted Hydra
+- **Input:** Customer with `license_type: "mpl_2_0"` attempts to use Gimel-hosted Hydra
 - **Expected:** Operation blocked, prompt for Platform ToS acceptance (Tier 1)
 
 #### CT-LIC-007: Proprietary Service ToS required per Type C slot
@@ -1509,7 +1677,7 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Input:** Customer accepts service ToS for `ai_governance` but not `web3_identity`
 - **Expected:** `ai_governance` accessible, `web3_identity` still blocked
 
-### 10.5 S2S Authentication Tests
+### 11.5 S2S Authentication Tests
 
 #### CT-S2S-001: Valid dual-layer auth accepted
 - **Input:** Request with valid `X-GAuth-Platform-Key` and valid `X-GAuth-HMAC-Signature`
@@ -1529,7 +1697,7 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 
 ---
 
-## 11. RFC CROSS-REFERENCE INDEX
+## 12. RFC CROSS-REFERENCE INDEX
 
 | SDK Feature | RFC 0115 | RFC 0116 | RFC 0117 | RFC 0118 | Internal Spec |
 |-------------|----------|----------|----------|----------|---------------|
@@ -1561,12 +1729,13 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 | **Scope checksum** | — | §4.4 (computation) | §9.2 CHK-01 (verification) | §10 (validation) | — |
 | **Verb namespace** | §3.1 (action verb taxonomy) | — | §4.2 (URN format) | — | — |
 | **Error schemas** | — | §12.2 (token errors) | §6 (PEP errors) | §12 (mgmt errors) | — |
+| **Integration patterns** | — | §8 (OAuth adapter) | §13 (deployment patterns) | — | — |
 
 ---
 
-## 12. LANGUAGE-SPECIFIC NOTES
+## 13. LANGUAGE-SPECIFIC NOTES
 
-### 12.1 Common Patterns
+### 13.1 Common Patterns
 
 All SDKs MUST implement:
 
@@ -1576,7 +1745,7 @@ All SDKs MUST implement:
 4. **Retry with exponential backoff** — For transient failures (HTTP 502, 504). Max 1 retry for Foundry/Wallet (Type B). No retry for PEP decisions (they are deterministic).
 5. **Health check client** — Wrappers for `/gauth/pep/v1/health` and per-slot health endpoints.
 
-### 12.2 Python SDK
+### 13.2 Python SDK
 
 - Use `dataclasses` or Pydantic v2 models for all request/response types.
 - Async support via `asyncio` + `httpx`.
@@ -1585,7 +1754,7 @@ All SDKs MUST implement:
 - JSON canonicalization: `canonicaljson` or `json-canonicalization` package (JCS / RFC 8785).
 - Package name: `gauth-sdk`.
 
-### 12.3 TypeScript SDK
+### 13.3 TypeScript SDK
 
 - Use Zod schemas for runtime validation (align with `drizzle-zod` patterns used in GAuth server).
 - Async support: native `Promise` / `async-await`.
@@ -1594,7 +1763,7 @@ All SDKs MUST implement:
 - JSON canonicalization: `canonicalize` package (JCS / RFC 8785).
 - Package name: `@gauth/sdk`.
 
-### 12.4 Rust SDK
+### 13.4 Rust SDK
 
 - Use `serde` for serialization/deserialization of all request/response types.
 - Async support: `tokio` + `reqwest`.
@@ -1604,7 +1773,7 @@ All SDKs MUST implement:
 - Package name: `gauth-sdk`.
 - All adapter traits should use `async_trait`.
 
-### 12.5 Go SDK
+### 13.5 Go SDK
 
 - Use struct types with JSON tags for all request/response types.
 - HMAC computation: `crypto/hmac` + `crypto/sha256`.
@@ -1613,7 +1782,7 @@ All SDKs MUST implement:
 - HTTP client: `net/http` with context-aware timeouts.
 - Module path: `github.com/gimelfoundation/gauth-sdk-go`.
 
-### 12.6 .NET SDK
+### 13.6 .NET SDK
 
 - Use record types for immutable request/response models.
 - Async support: `Task<T>` / `async-await`.
@@ -1625,15 +1794,15 @@ All SDKs MUST implement:
 
 ---
 
-## 13. OPEN CORE EXCLUSIONS
+## 14. OPEN CORE EXCLUSIONS
 
-### 13.1 Overview
+### 14.1 Overview
 
 GAuth Open Core is licensed under the Mozilla Public License 2.0 (MPL 2.0) with Gimel Foundation Additional Terms. The open-source license covers the full PEP enforcement pipeline (all 16 checks), the Management API, the adapter registration framework, and all Type A and Type B adapter interfaces.
 
 Three capabilities are **excluded** from the open-source license. These are proprietary to the Gimel Foundation, available only via Type C sealed adapters under the Gimel Technologies Terms of Service, and protected by Ed25519 manifest attestation.
 
-### 13.2 Exclusion Table
+### 14.2 Exclusion Table
 
 | # | Exclusion | Slot | Adapter Interface | Tariff Availability | Phase |
 |---|-----------|------|-------------------|---------------------|-------|
@@ -1641,7 +1810,7 @@ Three capabilities are **excluded** from the open-source license. These are prop
 | 2 | **Web3 Identity Integration** | 6 (`web3_identity`) | `Web3IdentityAdapter` | M (null or attested), L | Phase 2 |
 | 3 | **DNA-Based Identities / PQC** | 7 (`dna_identity`) | `DNAIdentityAdapter` | L only | Phase 3 |
 
-### 13.3 What Open Core Includes Without Exclusions
+### 14.3 What Open Core Includes Without Exclusions
 
 Open Core (Tariff O) provides:
 
@@ -1654,7 +1823,7 @@ Open Core (Tariff O) provides:
 
 The system is **fully functional** for production use without the excluded capabilities. AI-Enabled Governance adds an AI second-pass review; without it, all evaluations are rule-based. Web3 and DNA identity extend the identity model; without them, standard identity resolution is used.
 
-### 13.4 License Boundary
+### 14.4 License Boundary
 
 | Component | License | Modifiable | Redistributable |
 |-----------|---------|------------|-----------------|
@@ -1666,23 +1835,25 @@ The system is **fully functional** for production use without the excluded capab
 | Type C adapter *interfaces* (method signatures) | MPL 2.0 | Yes | Yes |
 | Ed25519 manifest verification code | MPL 2.0 | Yes | Yes |
 
-**Important distinction:** The Type C adapter *interfaces* (the method signatures in §3.5, §3.6, §3.7) are open-source under MPL 2.0. Only the Gimel *implementations* of those interfaces are proprietary. The SDK includes the interface definitions so that the system can correctly handle the `null` / `pending` / `active` lifecycle for Type C slots, even when no proprietary adapter is installed.
+**Important distinction:** The Type C adapter *interfaces* (the method signatures in §4.5, §4.6, §4.7) are open-source under MPL 2.0. Only the Gimel *implementations* of those interfaces are proprietary. The SDK includes the interface definitions so that the system can correctly handle the `null` / `pending` / `active` lifecycle for Type C slots, even when no proprietary adapter is installed.
 
-### 13.5 Gimel Foundation Additional Terms
+**MPL 2.0 copyleft obligation:** File-level copyleft means: if you modify an MPL 2.0-licensed file, your modifications to that file must also be made available under MPL 2.0. However, proprietary code in separate files can freely use, import, and link against MPL 2.0 code without copyleft applying to the proprietary files. This makes MPL 2.0 a "weak copyleft" — stronger than permissive licenses (MIT, Apache 2.0) but weaker than strong copyleft (GPL).
+
+### 14.5 Gimel Foundation Additional Terms
 
 The following additional terms apply on top of the MPL 2.0 base license:
 
 1. **AI-Enabled Governance Exclusion** — Third parties may not create, distribute, or offer competing implementations of AI-powered governance evaluation for the GAuth adapter slot system without a separate commercial license from the Gimel Foundation.
 2. **Web3 Identity Integration Exclusion** — Third parties may not create, distribute, or offer competing implementations of Web3/blockchain-based identity resolution for the GAuth adapter slot system without a separate commercial license.
-3. **DNA-Based Identities / PQC Exclusion** — Third parties may not create, distribute, or offer competing implementations of biometric/DNA-based identity verification or post-quantum cryptographic identity schemes for the GAuth adapter slot system without a separate commercial license.
+3. **DNA-Based Identity / PQC Exclusion** — Third parties may not create, distribute, or offer competing implementations of DNA-based identity verification or post-quantum cryptographic identity for the GAuth adapter slot system without a separate commercial license.
 
 These exclusions apply only to the specific adapter slot interfaces (slots 5, 6, 7). They do not restrict any other use, modification, or redistribution of the open-source components.
 
 ---
 
-## 14. GITHUB REPOSITORY STRUCTURE
+## 15. GITHUB REPOSITORY STRUCTURE
 
-### 14.1 Repository Layout
+### 15.1 Repository Layout
 
 Each SDK language SHOULD be published as a separate GitHub repository under the Gimel Foundation organization. All repositories MUST follow a consistent structure:
 
@@ -1709,7 +1880,7 @@ gauth-sdk-{lang}/
     └── custom-adapter/      ← Bring-your-own Type A OAuth adapter
 ```
 
-### 14.2 README.md Requirements
+### 15.2 README.md Requirements
 
 Every SDK repository README MUST include:
 
@@ -1723,7 +1894,7 @@ Every SDK repository README MUST include:
 8. **Badges** — License badge, CI status, SDK version, conformance test status
 9. **Links** — To the full SDK Implementation Guide, RFC specifications, and Gimel Foundation website
 
-### 14.3 README Quick-Start Example (Python)
+### 15.3 README Quick-Start Example (Python)
 
 ```python
 from gauth_core import GAuthClient
@@ -1744,7 +1915,7 @@ else:
     block(decision.violations)
 ```
 
-### 14.4 README Quick-Start Example (TypeScript)
+### 15.4 README Quick-Start Example (TypeScript)
 
 ```typescript
 import { GAuthClient } from "@gauth/sdk";
@@ -1766,7 +1937,7 @@ if (decision.decision === "PERMIT") {
 }
 ```
 
-### 14.5 License and Exclusions Notice Template
+### 15.5 License and Exclusions Notice Template
 
 Every README MUST include a notice section at the bottom:
 
@@ -1790,13 +1961,13 @@ adapter interfaces are fully open-source. See [ADDITIONAL-TERMS.md](ADDITIONAL-T
 for details.
 ```
 
-### 14.6 Legal Framework
+### 15.6 Legal Framework
 
 GAuth Open Core is governed by a layered legal structure involving two entities:
 
-**Gimel Foundation e.V.** — The foundation publishes the GiFo-RFCs and the open-source project. The Gimel Foundation Legal Terms apply to all use of GAuth, whether Open Core or proprietary.
+**Gimel Foundation gGmbH i.G.** — The foundation publishes the GiFo-RFCs and the open-source project. The Gimel Foundation Legal Terms apply to all use of GAuth, whether Open Core or proprietary.
 
-**Gimel Technologies** — The commercial entity that operates proprietary services. When a user chooses to use proprietary services (including the Excluded Components), a **license swap** occurs: the user moves from the open-source MPL 2.0 license to the Gimel Technologies Terms of Service. This swap is described in §6 (License & ToS State Machine) as the transition from `license_type: "apache_2_0"` to `license_type: "gimel_tos"`.
+**Gimel Technologies** — The commercial entity that operates proprietary services. When a user chooses to use proprietary services (including the Excluded Components), a **license swap** occurs: the user moves from the open-source MPL 2.0 license to the Gimel Technologies Terms of Service. This swap is described in §7 (License & ToS State Machine) as the transition from `license_type: "mpl_2_0"` to `license_type: "gimel_tos"`.
 
 The license structure for SDK repositories:
 
@@ -1820,12 +1991,12 @@ The Excluded Components (Type C adapter implementations) are **outside the scope
 - The Gimel Foundation Legal Terms apply to all use of GAuth.
 - The MPL 2.0 applies to the Open Core components only. It does not extend to the Excluded Components.
 - The Excluded Components are not covered by the MPL 2.0. They are outside its scope entirely.
-- Use of any proprietary service or Excluded Component (Type C adapter) triggers a license swap from the MPL 2.0 to the Gimel Technologies Terms of Service, as described in §6 (License & ToS State Machine).
+- Use of any proprietary service or Excluded Component (Type C adapter) triggers a license swap from the MPL 2.0 to the Gimel Technologies Terms of Service, as described in §7 (License & ToS State Machine).
 - The Gimel Technologies Terms of Service are the sole and independent legal basis governing proprietary features. No rights to create, distribute, or offer competing implementations within the three exclusion domains for the GAuth adapter slot system are granted by the MPL 2.0 or any other part of the Open Core license.
 - Contributors to Open Core components license their work under MPL 2.0. Contributions to Excluded Components require a separate Contributor License Agreement (CLA) with the Gimel Foundation.
 - For proprietary licensing inquiries: licensing@gimel.foundation
 
-### 14.7 Cross-Language Consistency
+### 15.7 Cross-Language Consistency
 
 All SDK repositories MUST maintain:
 
@@ -1892,10 +2063,20 @@ All normative schemas are hosted at `gimelfoundation.com`.
 
 | Schema | URI |
 |--------|-----|
-| Enforcement Request | `https://gimelfoundation.com/schemas/pep/v1.1/enforcement-request.json` |
-| Enforcement Decision | `https://gimelfoundation.com/schemas/pep/v1.1/enforcement-decision.json` |
-| Enforcement Error | `https://gimelfoundation.com/schemas/pep/v1.1/enforcement-error.json` |
+| PoA Credential | `https://gimelfoundation.com/schemas/poa/v2.2/poa-credential.json` |
+| Enforcement Request | `https://gimelfoundation.com/schemas/pep/v1.2/enforcement-request.json` |
+| Enforcement Decision | `https://gimelfoundation.com/schemas/pep/v1.2/enforcement-decision.json` |
+| Enforcement Error | `https://gimelfoundation.com/schemas/pep/v1.2/enforcement-error.json` |
 | Mandate Creation Request | `https://gimelfoundation.com/schemas/mgmt/v1.1/mandate-creation-request.json` |
+| Management Error | `https://gimelfoundation.com/schemas/mgmt/v1.1/management-error.json` |
+| Sealed Adapter Manifest | `https://gimelfoundation.com/schemas/adapter/v1.0/manifest.json` |
+
+**Well-known endpoints (runtime):**
+
+| Endpoint | URI | Purpose |
+|----------|-----|---------|
+| Adapter Trusted Keys | `https://gimelfoundation.com/.well-known/adapter-keys.json` | Ed25519 public keys for Type C manifest verification |
+| Adapter Revocations | `https://gimelfoundation.com/.well-known/adapter-revocations.json` | Revoked keys and adapter versions for Type C manifests |
 
 ---
 
@@ -1906,3 +2087,4 @@ All normative schemas are hosted at `gimelfoundation.com`.
 | 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D × O/S/M/L tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
 | 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (apply after license swap for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. License swap mechanism from MPL 2.0 to Gimel Technologies ToS explicitly documented. Repository legal file obligations and key legal points all SDK repos must make explicit. |
+| 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. 
