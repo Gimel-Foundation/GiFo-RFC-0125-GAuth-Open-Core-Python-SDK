@@ -156,4 +156,11 @@ CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance 
   3. DNA-Based Identities & PQC — biometric identity via genomic data, post-quantum cryptographic schemes
 - **Contributor note**: contributions to Open Core components are MPL 2.0; Excluded Components require a separate CLA with Gimel Foundation
 
+## SDK Implementation Guide
+
+- **Location**: `docs/gauth-sdk-implementation-guide.md`
+- **Version**: 1.1
+- **Contents**: Full SDK reference covering adapter type system (A/B/C/D), 7-slot connector model, sealed registration protocol (Ed25519 manifest), tariff gating matrix (O/S/M/L), two-tier ToS state machine, PEP integration, Management API client, S2S authentication, 88 conformance test vectors, Open Core Exclusions (§13), and GitHub Repository Structure (§14)
+- **License**: MPL 2.0 (open interfaces); Gimel ToS (Type C proprietary interfaces)
+
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
