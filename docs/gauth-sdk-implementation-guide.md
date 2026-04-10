@@ -2031,12 +2031,12 @@ All SDK repositories MUST maintain:
 
 GAuth SDK repositories accept contributions through two streams:
 
-| Stream | Source | Review Authority | Target |
-|--------|--------|-----------------|--------|
-| **A — Community PRs** | External developers submit pull requests on GitHub | Gimel Foundation Board of Trustees | `main` branch |
-| **B — Architecture pushes** | Gimel architecture team pushes from the development sandbox | Gimel architecture team (internal review) | `main` branch |
+| Stream | Source | Merge Path | Review Authority |
+|--------|--------|------------|-----------------|
+| **A — Community PRs** | External developers submit pull requests on GitHub | `feature/*` or `fix/*` → `main` via reviewed PR | Gimel Foundation Board of Trustees |
+| **B — Architecture pushes** | Gimel architecture team pushes from the Replit development sandbox | `replit` → `main` via reviewed PR | Gimel Foundation Board of Trustees |
 
-Both streams merge to `main`. **Neither stream automatically triggers a version bump or release.** Merging a pull request — from either stream — does not create a release. The `main` branch always contains the latest code, but "latest" is not "released."
+Both streams merge to `main` through reviewed pull requests. **Neither stream automatically triggers a version bump or release.** Merging a pull request — from either stream — does not create a release. The `main` branch always contains the latest code, but "latest" is not "released."
 
 ### 16.2 Release Authority
 
@@ -2083,15 +2083,25 @@ Pre-release versions MUST NOT be published to production package registries as t
 ### 16.6 Branch Model
 
 ```
-main           ← release branch (all releases are tagged here)
+main                ← protected release branch (all tags created here)
+  ↑ PR (reviewed)
   │
-  ├── feature/CHK-17-new-check    ← feature branch (short-lived)
-  └── fix/budget-race-condition   ← bugfix branch (short-lived)
+replit              ← architecture team integration branch
+  │                    (pushes from the Replit development sandbox)
+  │
+  ↑ PR (reviewed)
+  │
+feature/*           ← community feature branches (Stream A)
+fix/*               ← community bugfix branches (Stream A)
 ```
 
-- **`main`** is the release branch. All approved changes from both streams land here, and all release tags are created on `main`.
-- **Feature branches** are short-lived and merge to `main` via PR (Stream A) or direct push (Stream B).
-- **No long-lived `develop` or `release/*` branches.** The `main` branch is the single source of truth for both integration and releases. When the architecture team decides to cut a release, they tag the current HEAD of `main`.
+- **`main`** is the protected release branch. All release tags are created here. No direct pushes — every change enters `main` through a reviewed pull request.
+- **`replit`** is the architecture team's integration branch. All pushes from the Replit development sandbox land here. When work is ready, a PR is opened from `replit` → `main`, reviewed by the Board of Trustees, and merged.
+- **Feature branches** (`feature/*`, `fix/*`) are short-lived community branches that merge to `main` via reviewed PR (Stream A).
+- **Both streams use the same PR-based merge path into `main`**, ensuring full auditability in GitHub — every line of code has a PR with a diff, reviewer approvals, and timestamps.
+- **No long-lived `develop` or `release/*` branches.** The `main` branch is the single source of truth.
+
+For the full operational workflow, CI gates, and branch protection rules, see the [Contribution and Release Policy](contribution-and-release-policy.md).
 
 ### 16.7 Guide Version Compatibility
 
@@ -2109,7 +2119,7 @@ CI pipelines MUST enforce conformance test passage before any release. The full 
 | Gate | Enforcement |
 |------|-------------|
 | PR merge (Stream A) | All conformance tests MUST pass before the Board of Trustees approves the merge |
-| Push to `main` (Stream B) | Architecture team MUST verify conformance tests pass before pushing |
+| PR merge (Stream B) | All conformance tests MUST pass on the `replit` → `main` PR before the Board approves the merge |
 | Release tag | All conformance tests MUST pass on the exact tagged commit |
 
 ### 16.9 CHANGELOG Format
@@ -2209,16 +2219,14 @@ Breaking changes require additional communication beyond the CHANGELOG:
 
 ### 16.12 Board of Trustees Review Scope
 
-The Gimel Foundation Board of Trustees has two distinct review responsibilities:
+The Gimel Foundation Board of Trustees reviews at two gates:
 
-**1. Community PR review (Stream A):** The Board reviews every external pull request before it is merged to `main`. This is a pre-merge gate.
+**1. PR review (both streams — pre-merge gate):** The Board reviews every pull request targeting `main` before it is merged. This applies equally to Stream A (community PRs) and Stream B (`replit` → `main` PRs). Both streams receive identical scrutiny.
 
-**2. Release review (both streams):** When the architecture team proposes a release, the Board reviews the release as a whole before the tag is created and the package is published. This is a pre-release gate. It covers all changes since the last release — from both Stream A (community PRs) and Stream B (architecture pushes).
+**2. Release review (pre-tag gate):** When the architecture team proposes a release, the Board reviews the release as a whole before the tag is created and the package is published. This covers all changes since the last release.
 
-Stream B code (architecture team pushes) does not require individual Board review before merging to `main`. The Board's oversight of Stream B is exercised at the release gate, not at the merge level.
-
-| Review Area | Stream A (Community PRs) — Pre-Merge | Release Review — Pre-Tag |
-|-------------|--------------------------------------|--------------------------|
+| Review Area | PR Review — Pre-Merge (both streams) | Release Review — Pre-Tag |
+|-------------|---------------------------------------|--------------------------|
 | Code quality | Yes | Yes |
 | Spec alignment | Yes (conformance tests) | Yes (conformance tests) |
 | License compliance | Yes (MPL 2.0, no Excluded Component code without CLA) | Yes |
@@ -2226,6 +2234,8 @@ Stream B code (architecture team pushes) does not require individual Board revie
 | Breaking change justification | N/A (PRs don't control versions) | Yes |
 
 The Board's internal review process is a foundation governance matter and is not specified by this guide.
+
+For the full operational details of each gate, see the [Contribution and Release Policy](contribution-and-release-policy.md).
 
 ---
 
@@ -2309,4 +2319,4 @@ All normative schemas are hosted at `gimelfoundation.com`.
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
 | 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (apply after license swap for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. License swap mechanism from MPL 2.0 to Gimel Technologies ToS explicitly documented. Repository legal file obligations and key legal points all SDK repos must make explicit. |
 | 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. |
-| 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: two contribution streams (community PRs reviewed by Board of Trustees pre-merge, architecture team pushes reviewed at release gate), release authority (architecture team decides versions, Board reviews before tagging), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags on main, immutable), branch model (main as release branch, no develop or release branches), pre-release version format (alpha/beta/rc with MUST NOT publish as default), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates, CHANGELOG format (Keep a Changelog with 6 required section headers: Added/Changed/Deprecated/Removed/Fixed/Security), 10-step release checklist (including reviewed PR merge step), breaking change communication protocol (deprecation notice, migration guide, (**BREAKING**) marker), Board of Trustees review scope with explicit Stream A vs release-gate distinction. Added §15.7 CONTRIBUTING.md Template Requirements (8-point canonical template). Updated §15.1 repo layout: added CHANGELOG.md, updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. |
+| 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: dual-stream PR-based contribution model (both Stream A community PRs and Stream B architecture pushes merge to `main` through reviewed PRs — Board of Trustees reviews all PRs pre-merge), `replit` integration branch for architecture team pushes from Replit sandbox, `main` as protected release branch (no direct pushes, all tags created here), release authority (architecture team decides versions, Board reviews releases pre-tag), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags on main, immutable), pre-release version format (alpha/beta/rc, MUST NOT publish as default), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates on all PRs, CHANGELOG format (Keep a Changelog with 6 required section headers: Added/Changed/Deprecated/Removed/Fixed/Security), 10-step release checklist (including reviewed PR merge step), breaking change communication protocol (deprecation notice, migration guide, (**BREAKING**) marker), Board of Trustees review scope (pre-merge gate for both streams, pre-tag gate for releases). Added §15.7 CONTRIBUTING.md Template Requirements (8-point canonical template). Updated §15.1 repo layout: added CHANGELOG.md, updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. Companion document: `docs/contribution-and-release-policy.md` v1.0 (operational workflow, CI gates, branch protection rules, auditability guarantees). |
