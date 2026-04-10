@@ -5,7 +5,7 @@
 **Authors:** Gimel Foundation — Auth Team
 **Audience:** SDK Teams (Python, TypeScript, Rust, Go, .NET)
 **Status:** DRAFT — SDK Team Review
-**License:** Mozilla Public License 2.0 (open interfaces); Gimel ToS (Type C proprietary interfaces)
+**License:** Mozilla Public License 2.0 (open interfaces); Gimel Technologies Terms of Service (Type C proprietary interfaces)
 **Builds on:** GiFo-RFC 0116 v2.2, GiFo-RFC 0117 v1.1, GiFo-RFC 0118 v1.1, GAuth Internal Spec v1.2
 
 ---
@@ -110,7 +110,7 @@ GAuth uses a 7-slot connector model. Each slot has a fixed position, a typed ada
 |------|---------|-----------------|-------------|------|
 | **A** — OAuth Engine | MPL 2.0 (RFC 0116 §8) | Yes — any OIDC server | No | Credits when using Gimel-hosted |
 | **B** — Foundry/Wallet | MPL 2.0 (RFC 0116 §9.3) | Yes — open interface | No | Credits when using Gimel-hosted |
-| **C** — Exclusive IP | Gimel ToS (proprietary) | No — Gimel-exclusive | Yes (Ed25519 manifest) | Credits + license switch |
+| **C** — Exclusive IP | Gimel Technologies ToS (proprietary) | No — Gimel-exclusive | Yes (Ed25519 manifest) | Credits + license swap |
 | **D** — Billing | Internal only | No — Gimel-internal | No | Automatic |
 
 **SDK obligation:** SDKs MUST model all four types. Type D is not directly callable by SDK consumers but the SDK must understand that billing operations are triggered automatically when Gimel-hosted adapters are active.
@@ -302,7 +302,7 @@ healthCheck() → AdapterHealthResult
 | `GovernanceRecommendation` | `id: string`, `recommendation: string`, `severity: string` |
 
 **SDK notes:**
-- Type C adapter — requires Ed25519 sealed manifest attestation and Gimel ToS acceptance.
+- Type C adapter — requires Ed25519 sealed manifest attestation and Gimel Technologies ToS acceptance.
 - When AI governance slot is null, the system falls back to rule-based-only evaluation (first pass only, no AI second pass).
 - The internal Gimel implementation routes to G-Agent 1 (G-LLM), G-Agent 2 (G-NLP), and G-Agent 3 (Architecture Compliance).
 
@@ -404,7 +404,7 @@ Caller (platform startup or admin action)
 | `GET` | `/api/connectors/status` | Get status summary for all 7 slots |
 | `GET` | `/api/connectors/:slotName/health` | Health check a specific slot |
 | `GET` | `/api/connectors/:slotName/tariff-gate` | Check tariff gate for a slot |
-| `POST` | `/api/connectors/:slotName/accept-license` | Accept Gimel ToS for Type C activation |
+| `POST` | `/api/connectors/:slotName/accept-license` | Accept Gimel Technologies ToS for Type C activation |
 
 **Implementation note:** In the current release, adapter registration is performed server-side during platform initialization (see `initializeDefaultAdapters()` in `default-adapters.ts`). HTTP-based adapter registration endpoints for user-provided adapters are planned for a future release. SDKs SHOULD model the registration interface to support both programmatic and HTTP-based registration.
 
@@ -1631,7 +1631,7 @@ All SDKs MUST implement:
 
 GAuth Open Core is licensed under the Mozilla Public License 2.0 (MPL 2.0) with Gimel Foundation Additional Terms. The open-source license covers the full PEP enforcement pipeline (all 16 checks), the Management API, the adapter registration framework, and all Type A and Type B adapter interfaces.
 
-Three capabilities are **excluded** from the open-source license. These are proprietary to the Gimel Foundation, available only via Type C sealed adapters under the Gimel Terms of Service, and protected by Ed25519 manifest attestation.
+Three capabilities are **excluded** from the open-source license. These are proprietary to the Gimel Foundation, available only via Type C sealed adapters under the Gimel Technologies Terms of Service, and protected by Ed25519 manifest attestation.
 
 ### 13.2 Exclusion Table
 
@@ -1662,7 +1662,7 @@ The system is **fully functional** for production use without the excluded capab
 | Type A/B adapter interfaces | MPL 2.0 | Yes | Yes |
 | PEP engine, Management API | MPL 2.0 | Yes | Yes |
 | Conformance test suite | MPL 2.0 | Yes | Yes |
-| Type C adapter implementations | Gimel ToS (proprietary) | No | No |
+| Type C adapter implementations | Gimel Technologies ToS (proprietary) | No | No |
 | Type C adapter *interfaces* (method signatures) | MPL 2.0 | Yes | Yes |
 | Ed25519 manifest verification code | MPL 2.0 | Yes | Yes |
 
@@ -1779,7 +1779,7 @@ This project is licensed under the [Mozilla Public License 2.0](LICENSE) with
 ### Open Core Exclusions
 
 Three capabilities are excluded from the open-source license and are available
-only under the Gimel Terms of Service:
+only under the Gimel Technologies Terms of Service:
 
 1. **AI-Enabled Governance** (Slot 5)
 2. **Web3 Identity Integration** (Slot 6)
@@ -1792,24 +1792,36 @@ for details.
 
 ### 14.6 Legal Framework
 
-All SDK repositories are governed by a dual-license structure:
+GAuth Open Core is governed by a layered legal structure involving two entities:
 
-1. **Mozilla Public License 2.0 (MPL 2.0)** — Governs all Open Core components. The full MPL 2.0 text MUST be included as `LICENSE` in the repository root.
+**Gimel Foundation e.V.** — The foundation publishes the GiFo-RFCs and the open-source project. The Gimel Foundation Legal Terms apply to all use of GAuth, whether Open Core or proprietary.
 
-2. **Gimel Foundation Terms of Service** — Govern all Excluded Components (Type C adapter implementations: AI-Enabled Governance, Web3 Identity Integration, DNA-Based Identities / PQC). The Excluded Components are outside the scope of the MPL 2.0 — the MPL 2.0 does not apply to them. The Gimel Foundation Terms of Service are the sole and independent legal basis for any use of Excluded Components.
+**Gimel Technologies** — The commercial entity that operates proprietary services. When a user chooses to use proprietary services (including the Excluded Components), a **license swap** occurs: the user moves from the open-source MPL 2.0 license to the Gimel Technologies Terms of Service. This swap is described in §6 (License & ToS State Machine) as the transition from `license_type: "apache_2_0"` to `license_type: "gimel_tos"`.
+
+The license structure for SDK repositories:
+
+| Layer | Scope | Governing Terms |
+|-------|-------|-----------------|
+| **Gimel Foundation Legal Terms** | All use of GAuth (Open Core and proprietary) | Apply universally |
+| **MPL 2.0** | Open Core components only | Governs source code rights for Open Core |
+| **Gimel Technologies Terms of Service** | Proprietary services including Excluded Components | Apply after license swap when user opts into proprietary services |
+
+The Excluded Components (Type C adapter implementations) are **outside the scope of the MPL 2.0** — the MPL 2.0 does not apply to them. The Gimel Technologies Terms of Service are the sole and independent legal basis for any use of Excluded Components.
 
 **Repository obligations:**
 
 | File | Required | Content |
 |------|----------|---------|
 | `LICENSE` | Yes | Full MPL 2.0 text + Gimel Foundation Additional Terms appendix |
-| `ADDITIONAL-TERMS.md` | Yes | Standalone, reader-friendly description of the three exclusions, the license boundary table, and reference to the Gimel Foundation Terms of Service |
+| `ADDITIONAL-TERMS.md` | Yes | Standalone, reader-friendly description of the three exclusions, the license boundary table, and reference to the Gimel Technologies Terms of Service |
 
 **Key legal points SDK repositories MUST make explicit:**
 
-- The MPL 2.0 applies to the Open Core only. It does not extend to the Excluded Components.
-- Use of any Excluded Component (Type C adapter) requires acceptance of the Gimel Foundation Terms of Service, as described in §6 (License & ToS State Machine).
-- The Excluded Components are not covered by the MPL 2.0. The Gimel Foundation Terms of Service are the sole and independent legal basis governing proprietary features. No rights to create, distribute, or offer competing implementations within the three exclusion domains for the GAuth adapter slot system are granted by the MPL 2.0 or any other part of the Open Core license.
+- The Gimel Foundation Legal Terms apply to all use of GAuth.
+- The MPL 2.0 applies to the Open Core components only. It does not extend to the Excluded Components.
+- The Excluded Components are not covered by the MPL 2.0. They are outside its scope entirely.
+- Use of any proprietary service or Excluded Component (Type C adapter) triggers a license swap from the MPL 2.0 to the Gimel Technologies Terms of Service, as described in §6 (License & ToS State Machine).
+- The Gimel Technologies Terms of Service are the sole and independent legal basis governing proprietary features. No rights to create, distribute, or offer competing implementations within the three exclusion domains for the GAuth adapter slot system are granted by the MPL 2.0 or any other part of the Open Core license.
 - Contributors to Open Core components license their work under MPL 2.0. Contributions to Excluded Components require a separate Contributor License Agreement (CLA) with the Gimel Foundation.
 - For proprietary licensing inquiries: licensing@gimel.foundation
 
@@ -1893,4 +1905,4 @@ All normative schemas are hosted at `gimelfoundation.com`.
 |---------|------|--------|---------|
 | 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D × O/S/M/L tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
-| 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: dual-license structure (MPL 2.0 + Gimel Foundation ToS), Excluded Components are outside the scope of MPL 2.0 (Gimel ToS is the sole and independent legal basis), repository legal file obligations, key legal points all SDK repos must make explicit. |
+| 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (apply after license swap for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. License swap mechanism from MPL 2.0 to Gimel Technologies ToS explicitly documented. Repository legal file obligations and key legal points all SDK repos must make explicit. |

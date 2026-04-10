@@ -6,6 +6,14 @@
 
 ---
 
+## Legal Framework
+
+GAuth Open Core is governed by a layered legal structure:
+
+- **Gimel Foundation Legal Terms** apply to all use of GAuth, whether Open Core or proprietary.
+- **Mozilla Public License 2.0 (MPL 2.0)** governs source code rights for Open Core components only.
+- **Gimel Technologies Terms of Service** apply when a user opts into proprietary services, including the Excluded Components. This constitutes a license swap from the MPL 2.0 to the Gimel Technologies ToS for those components.
+
 ## Scope of the MPL 2.0 License
 
 The Mozilla Public License, Version 2.0, applies to the Open Core components
@@ -25,10 +33,12 @@ of this project, including but not limited to:
 ## Excluded Components — Proprietary License Required
 
 The following functional domains are explicitly **excluded** from the scope of
-the MPL 2.0 license. These Excluded Components are subject to separate
-proprietary licensing agreements with the Gimel Foundation and may not be used,
-reproduced, modified, or distributed without obtaining the appropriate
-commercial license:
+the MPL 2.0 license — the MPL 2.0 does not apply to them. These Excluded
+Components are outside the scope of the open-source license entirely and are
+governed solely by the Gimel Technologies Terms of Service. Use of any Excluded
+Component requires acceptance of the Gimel Technologies Terms of Service and
+may not be used, reproduced, modified, or distributed without obtaining the
+appropriate commercial license:
 
 ### 1. AI-Enabled Governance
 
@@ -73,7 +83,7 @@ extensions that implement or integrate:
 | Open Core (SDK, PEP, Management API) | MPL 2.0 | Yes (file-level copyleft) | Yes |
 | Type A/B adapter interfaces | MPL 2.0 | Yes | Yes |
 | Conformance test suite | MPL 2.0 | Yes | Yes |
-| Type C adapter implementations | Gimel ToS | No | No |
+| Type C adapter implementations | Gimel Technologies ToS | No | No |
 
 The Open Core is **fully functional** for production use without the Excluded
 Components. AI-Enabled Governance adds an AI second-pass review; without it,
