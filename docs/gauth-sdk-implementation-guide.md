@@ -1790,7 +1790,30 @@ adapter interfaces are fully open-source. See [ADDITIONAL-TERMS.md](ADDITIONAL-T
 for details.
 ```
 
-### 14.6 Cross-Language Consistency
+### 14.6 Legal Framework
+
+All SDK repositories are governed by a dual-license structure:
+
+1. **Mozilla Public License 2.0 (MPL 2.0)** — Governs all Open Core components. The full MPL 2.0 text MUST be included as `LICENSE` in the repository root.
+
+2. **Gimel Foundation Terms of Service** — Govern all Excluded Components (Type C adapter implementations: AI-Enabled Governance, Web3 Identity Integration, DNA-Based Identities / PQC). These terms supersede the MPL 2.0 for any functionality falling within the scope of the three exclusions defined in §13.
+
+**Repository obligations:**
+
+| File | Required | Content |
+|------|----------|---------|
+| `LICENSE` | Yes | Full MPL 2.0 text + Gimel Foundation Additional Terms appendix |
+| `ADDITIONAL-TERMS.md` | Yes | Standalone, reader-friendly description of the three exclusions, the license boundary table, and reference to the Gimel Foundation Terms of Service |
+
+**Key legal points SDK repositories MUST make explicit:**
+
+- The MPL 2.0 applies to the Open Core only. It does not extend to the Excluded Components.
+- Use of any Excluded Component (Type C adapter) requires acceptance of the Gimel Foundation Terms of Service, as described in §6 (License & ToS State Machine).
+- The Gimel Foundation Terms of Service are the sole governing terms for proprietary features. The MPL 2.0 does not grant any rights to create, distribute, or offer competing implementations within the three exclusion domains for the GAuth adapter slot system.
+- Contributors to Open Core components license their work under MPL 2.0. Contributions to Excluded Components require a separate Contributor License Agreement (CLA) with the Gimel Foundation.
+- For proprietary licensing inquiries: licensing@gimel.foundation
+
+### 14.7 Cross-Language Consistency
 
 All SDK repositories MUST maintain:
 
@@ -1798,7 +1821,7 @@ All SDK repositories MUST maintain:
 - **Identical violation code constants** — Same string values across all languages
 - **Identical adapter interface method signatures** — Same method names and parameter shapes (adapted to language idioms)
 - **Identical README structure** — Same sections in the same order
-- **Identical exclusions text** — The ADDITIONAL-TERMS.md file MUST be identical across all repositories
+- **Identical legal files** — The `LICENSE` and `ADDITIONAL-TERMS.md` files MUST be identical across all repositories
 
 ---
 
@@ -1870,4 +1893,4 @@ All normative schemas are hosted at `gimelfoundation.com`.
 |---------|------|--------|---------|
 | 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D × O/S/M/L tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
-| 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). |
+| 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: dual-license structure (MPL 2.0 + Gimel Foundation ToS), Gimel ToS supersedes MPL 2.0 for Excluded Components, repository legal file obligations, key legal points all SDK repos must make explicit. |
