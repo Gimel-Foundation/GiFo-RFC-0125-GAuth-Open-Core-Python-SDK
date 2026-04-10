@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "4h5jQdoNwv7PWjBs2mQSc"
+uri = "file://docs/contribution-and-release-policy.md"
+type = "text"
+title = "GAuth SDK — Contribution and Release Policy v1.0"
