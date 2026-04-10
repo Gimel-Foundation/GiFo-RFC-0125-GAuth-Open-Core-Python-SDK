@@ -1,6 +1,6 @@
 # GAuth SDK Implementation Guide
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2026-04-10
 **Authors:** Gimel Foundation — Auth Team
 **Audience:** SDK Teams (Python, TypeScript, Rust, Go, .NET)
@@ -35,6 +35,7 @@ The guide does not redefine the RFCs — it bridges the gap between the protocol
 13. [Language-Specific Notes](#13-language-specific-notes)
 14. [Open Core Exclusions](#14-open-core-exclusions)
 15. [GitHub Repository Structure](#15-github-repository-structure)
+16. [SDK Versioning & Release Policy](#16-sdk-versioning--release-policy)
 
 ---
 
@@ -1862,7 +1863,8 @@ gauth-sdk-{lang}/
 ├── README.md                ← Landing page: what GAuth is, quick-start, badges
 ├── LICENSE                  ← MPL 2.0 full text
 ├── ADDITIONAL-TERMS.md      ← Gimel Foundation Additional Terms (three exclusions)
-├── CONTRIBUTING.md          ← Contribution guidelines, CLA reference
+├── CHANGELOG.md             ← Keep a Changelog format (§16.9)
+├── CONTRIBUTING.md          ← Contribution streams, PR process, CLA, versioning rules (§16)
 ├── SECURITY.md              ← Security policy, vulnerability reporting
 ├── docs/
 │   ├── architecture.md      ← System context, P*P model, 7-slot adapter diagram
@@ -1891,7 +1893,7 @@ Every SDK repository README MUST include:
 5. **Installation instructions** — Package manager commands for the target language
 6. **License notice** — MPL 2.0 with explicit reference to ADDITIONAL-TERMS.md
 7. **Exclusions notice** — Short paragraph stating that three capabilities are excluded from the open-source license, with a link to the full exclusions document
-8. **Badges** — License badge, CI status, SDK version, conformance test status
+8. **Badges** — License badge, CI status, SDK version, conformance test status, guide version compatibility (e.g., `Guide v1.2`)
 9. **Links** — To the full SDK Implementation Guide, RFC specifications, and Gimel Foundation website
 
 ### 15.3 README Quick-Start Example (Python)
@@ -2008,6 +2010,197 @@ All SDK repositories MUST maintain:
 
 ---
 
+## 16. SDK VERSIONING & RELEASE POLICY
+
+### 16.1 Contribution Streams
+
+GAuth SDK repositories accept contributions through two streams:
+
+| Stream | Source | Review Authority | Target |
+|--------|--------|-----------------|--------|
+| **A — Community PRs** | External developers submit pull requests on GitHub | Gimel Foundation Board of Trustees | `main` branch |
+| **B — Architecture pushes** | Gimel architecture team pushes from the development sandbox | Gimel architecture team (internal review) | `main` branch |
+
+Both streams merge to `main`. **Neither stream automatically triggers a version bump or release.** Merging a pull request — from either stream — does not create a release. The `main` branch always contains the latest code, but "latest" is not "released."
+
+### 16.2 Release Authority
+
+Only the Gimel architecture team decides when to cut a new release. Version numbers are architectural decisions, not merge counters. The architecture team determines:
+
+- **When** a release is warranted (sufficient changes have accumulated, a milestone is reached, or a critical fix must ship)
+- **What version number** to assign (based on the semver rules in §16.3)
+- **What changes** are included (cherry-pick from `main` or release from HEAD)
+
+The Gimel Foundation Board of Trustees reviews proposed releases before they are tagged and published, ensuring quality, spec alignment, and license compliance.
+
+### 16.3 Versioning Scheme
+
+All SDK repositories use **Semantic Versioning 2.0** (semver.org). Each SDK language versions **independently** — Python, TypeScript, Rust, Go, and .NET are not required to share the same version number.
+
+| Bump | Trigger | Examples |
+|------|---------|----------|
+| **MAJOR** | Breaking change to the public API | Removing or renaming public methods; changing wire-format values (e.g., `license_type` string rename); removing conformance test vectors; changing adapter interface method signatures; incompatible request/response schema changes |
+| **MINOR** | Backward-compatible feature addition | New API methods; new conformance test vectors; new adapter support (e.g., adding a Zitadel claims provider); new integration pattern support; new checks in the PEP pipeline (additive) |
+| **PATCH** | Backward-compatible bug fix | Bug fixes with no API change; documentation corrections; dependency updates with no behavioral change; performance improvements |
+
+### 16.4 Pre-Release Versions
+
+Pre-release versions follow semver pre-release syntax:
+
+| Stage | Format | Purpose |
+|-------|--------|---------|
+| Alpha | `v1.2.0-alpha.1` | Early development, API may change |
+| Beta | `v1.2.0-beta.1` | Feature-complete, seeking feedback |
+| Release candidate | `v1.2.0-rc.1` | Final validation before release |
+
+Pre-release versions MUST be clearly marked as pre-release in the target package registry so that default package manager installs (e.g., `pip install gauth-sdk`, `npm install @gauth/sdk`) do not resolve to a pre-release version. Each ecosystem has its own mechanism for this — consult the registry documentation. Pre-release versions MAY also be published to test registries or GitHub Packages.
+
+### 16.5 Git Tagging Convention
+
+| Rule | Convention |
+|------|-----------|
+| Tag format | `v{MAJOR}.{MINOR}.{PATCH}` (e.g., `v1.2.0`) |
+| Pre-release tags | `v{MAJOR}.{MINOR}.{PATCH}-{stage}.{n}` (e.g., `v1.2.0-beta.1`) |
+| Signing | Signed tags (GPG or SSH) RECOMMENDED for all releases, REQUIRED for MAJOR releases |
+| Tag target | Tags MUST point to the exact commit that was released — on `main` or on a `release/` branch (see §16.6) |
+| Immutability | Once a tag is pushed, it MUST NOT be moved or deleted (exception: pre-release tags may be replaced) |
+
+### 16.6 Branch Model
+
+```
+main           ← integration branch (latest code, not necessarily "released")
+  │
+  ├── feature/CHK-17-new-check    ← feature branch (short-lived)
+  ├── fix/budget-race-condition   ← bugfix branch (short-lived)
+  └── release/v1.3.0             ← optional release branch (for stabilization before tagging)
+```
+
+- **`main`** is the integration branch. All approved changes from both streams land here.
+- **Feature branches** are short-lived and merge to `main` via PR (Stream A) or direct push (Stream B).
+- **Release branches** (`release/v{X}.{Y}.{Z}`) are optional. Use them when the architecture team needs to stabilize a release while development continues on `main`. Cherry-pick fixes from `main` into the release branch, then tag from it.
+- **No long-lived `develop` branch.** The `main` branch serves as the single integration point.
+
+### 16.7 Guide Version Compatibility
+
+Each SDK release MUST declare which Implementation Guide version it conforms to. This is tracked in two places:
+
+1. **README badge** — A badge displaying the guide version (e.g., `Guide v1.2`).
+2. **Package metadata** — A constant or configuration value in the SDK (e.g., `GUIDE_VERSION = "1.2"` in Python, `export const GUIDE_VERSION = "1.2"` in TypeScript).
+
+An SDK at guide version `X.Y` MUST pass all conformance test vectors defined in Implementation Guide version `X.Y`. When the guide introduces new conformance tests in a new version, SDK teams update their declared guide version only after passing the new tests.
+
+### 16.8 Conformance Test Compatibility
+
+CI pipelines MUST enforce conformance test passage before any release. The full conformance suite (CT-REG, CT-PEP, CT-MGMT, CT-LIC, CT-S2S) runs on every PR and every push to `main`.
+
+| Gate | Enforcement |
+|------|-------------|
+| PR merge (Stream A) | All conformance tests MUST pass before the Board of Trustees approves the merge |
+| Push to `main` (Stream B) | Architecture team MUST verify conformance tests pass before pushing |
+| Release tag | All conformance tests MUST pass on the exact tagged commit |
+
+### 16.9 CHANGELOG Format
+
+Every SDK repository MUST maintain a `CHANGELOG.md` in the repository root, following the [Keep a Changelog](https://keepachangelog.com) format:
+
+```markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- New conformance test CT-PEP-032 for verb wildcard matching
+
+## [1.2.0] - 2026-04-15
+
+### Added
+- Gateway integration pattern: `gauthPepMiddleware()` for Express
+- Support for transaction matrix cross-product validation (CHK-11)
+
+### Changed
+- `license_type` default value changed from `"apache_2_0"` to `"mpl_2_0"` (**BREAKING**)
+
+### Fixed
+- Budget consumption race condition under concurrent requests
+
+## [1.1.0] - 2026-04-10
+
+### Added
+- Initial release with full 16-check PEP pipeline
+```
+
+**Rules:**
+- The `[Unreleased]` section accumulates changes from both streams between releases.
+- When the architecture team cuts a release, `[Unreleased]` is renamed to the new version with the release date, and a fresh `[Unreleased]` section is added.
+- Breaking changes MUST be marked with `(**BREAKING**)` in the entry.
+- Each entry is a short, human-readable sentence (not a commit hash or PR number).
+
+### 16.10 Release Checklist
+
+The architecture team follows this ordered checklist when cutting a release:
+
+```
+1. [ ] Architecture team decides a release is warranted
+2. [ ] All conformance tests pass on the target commit
+3. [ ] CHANGELOG.md updated: [Unreleased] → [X.Y.Z] - YYYY-MM-DD
+4. [ ] Version bumped in package metadata:
+       - Python: pyproject.toml / setup.cfg
+       - TypeScript: package.json
+       - Rust: Cargo.toml
+       - Go: tagged (version in go module path for v2+)
+       - .NET: Directory.Build.props / .csproj
+5. [ ] Guide version compatibility constant updated (if guide version changed)
+6. [ ] Board of Trustees reviews the release
+7. [ ] Signed git tag created: git tag -s vX.Y.Z (on main or release branch per §16.6)
+8. [ ] Package published to registry:
+       - Python → PyPI
+       - TypeScript → npm (@gauth/sdk)
+       - Rust → crates.io (gauth-sdk)
+       - Go → pkg.go.dev (tagged release)
+       - .NET → NuGet (GAuth.Sdk)
+9. [ ] GitHub Release created with CHANGELOG entry as release notes body
+```
+
+### 16.11 Breaking Change Communication
+
+Breaking changes require additional communication beyond the CHANGELOG:
+
+| Requirement | Detail |
+|-------------|--------|
+| CHANGELOG entry | Under "Changed" or "Removed" with `(**BREAKING**)` marker |
+| Migration guide | Included in the GitHub Release notes — step-by-step instructions for upgrading |
+| Deprecation notice | Where feasible, deprecate in a MINOR release before removing in the next MAJOR. Minimum 1 minor version notice period. |
+| SDK team notification | Architecture team notifies all SDK teams of the breaking change before the release is tagged |
+
+**Example:** The `license_type` rename from `"apache_2_0"` to `"mpl_2_0"` in guide v1.2 is a breaking wire-format change. It would require: a CHANGELOG entry marked `(**BREAKING**)`, a migration guide explaining the string value change, and notification to all SDK teams before the release.
+
+### 16.12 Board of Trustees Review Scope
+
+The Gimel Foundation Board of Trustees has two distinct review responsibilities:
+
+**1. Community PR review (Stream A):** The Board reviews every external pull request before it is merged to `main`. This is a pre-merge gate.
+
+**2. Release review (both streams):** When the architecture team proposes a release, the Board reviews the release as a whole before the tag is created and the package is published. This is a pre-release gate. It covers all changes since the last release — from both Stream A (community PRs) and Stream B (architecture pushes).
+
+Stream B code (architecture team pushes) does not require individual Board review before merging to `main`. The Board's oversight of Stream B is exercised at the release gate, not at the merge level.
+
+| Review Area | Stream A (Community PRs) — Pre-Merge | Release Review — Pre-Tag |
+|-------------|--------------------------------------|--------------------------|
+| Code quality | Yes | Yes |
+| Spec alignment | Yes (conformance tests) | Yes (conformance tests) |
+| License compliance | Yes (MPL 2.0, no Excluded Component code without CLA) | Yes |
+| Security | Yes (no credential leaks, no unsafe crypto) | Yes |
+| Breaking change justification | N/A (PRs don't control versions) | Yes |
+
+The Board's internal review process is a foundation governance matter and is not specified by this guide.
+
+---
+
 ## Appendix A: Governance Profile Ceiling Table
 
 Reference table for SDK implementations of CHK-03 and Management API validation.
@@ -2087,4 +2280,5 @@ All normative schemas are hosted at `gimelfoundation.com`.
 | 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D × O/S/M/L tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
 | 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (apply after license swap for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. License swap mechanism from MPL 2.0 to Gimel Technologies ToS explicitly documented. Repository legal file obligations and key legal points all SDK repos must make explicit. |
-| 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. 
+| 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. |
+| 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: two contribution streams (community PRs reviewed by Board of Trustees, architecture team pushes from sandbox), release authority (architecture team decides versions, Board reviews before tagging), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags, immutable), branch model (main as integration branch, optional release branches, no develop), pre-release version format (alpha/beta/rc), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates, CHANGELOG format (Keep a Changelog), 9-step release checklist, breaking change communication protocol (deprecation notice, migration guide, CHANGELOG marker), Board of Trustees review scope table. Updated §15.1 repo layout: added CHANGELOG.md and updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. |
