@@ -7,7 +7,7 @@ name = "gauth-core"
 version = "0.1.0"
 description = "GAuth Open Core SDK — Power of Attorney compliance monitoring for AI agents"
 readme = "README.md"
-license = "Apache-2.0"
+license = "MPL-2.0"
 requires-python = ">=3.10"
 authors = [
     { name = "Gimel Foundation — Architecture Working Group" },
@@ -16,7 +16,7 @@ keywords = ["gauth", "poa", "authorization", "ai-agents", "compliance"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

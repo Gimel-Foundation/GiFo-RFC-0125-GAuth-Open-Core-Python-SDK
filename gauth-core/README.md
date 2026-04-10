@@ -2,7 +2,7 @@
 
 **Power of Attorney compliance monitoring for AI agents.**
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
 
 GAuth Open Core is a Python SDK implementing the complete GAuth protocol suite (GiFo-RFCs 0110, 0111, 0116, 0117, 0118). It provides PoA credential management, runtime enforcement, and lifecycle operations for governing AI agent behavior.
@@ -204,6 +204,8 @@ python -c "from gauth_core.http import create_app; app = create_app()"
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Mozilla Public License 2.0 — see [LICENSE](LICENSE).
 
-Copyright 2026 Gimel Foundation.
+See [ADDITIONAL-TERMS.md](ADDITIONAL-TERMS.md) for the three proprietary exclusions (AI-Enabled Governance, Web3 Integration, DNA-Based Identities/PQC).
+
+Copyright 2026 Gimel Foundation gGmbH i.G.
