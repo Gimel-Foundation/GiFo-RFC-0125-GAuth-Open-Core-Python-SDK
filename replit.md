@@ -105,7 +105,7 @@ CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance 
 
 ### Hybrid Cascade Escalation
 
-When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is configured, the PEP forwards the request to Auth PEP for a definitive decision. If Auth PEP is unreachable, the system fails-closed with DENY. Both Python (`PEPEngine(auth_pep_client=...)`) and TypeScript (`setAuthPEPClient(...)`) support this pattern.
+When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is configured, the PEP forwards the request to Auth PEP for a definitive decision. If Auth PEP is unreachable, the system preserves the local CONSTRAIN result as a rule-based-only fallback (CHK-ESC severity=warning). Both Python (`PEPEngine(auth_pep_client=...)`) and TypeScript (`setAuthPEPClient(...)`) support this pattern.
 
 ## GAuth Open Core (Python SDK)
 
@@ -164,7 +164,7 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 
 - **Location**: `docs/gauth-sdk-implementation-guide.md`
 - **Version**: 0.91 (Public Preview)
-- **Contents**: Full SDK reference covering adapter type system (A/B/C/D), 7-slot connector model, sealed registration protocol (Ed25519 manifest), tariff gating matrix (O/S/M/L), two-tier ToS state machine, PEP integration, Management API client, S2S authentication, 88 conformance test vectors, Open Core Exclusions (§13), and GitHub Repository Structure (§14)
+- **Contents**: Full SDK reference covering adapter type system (A/B/C/D), 7-slot connector model, sealed registration protocol (Ed25519 manifest), tariff gating matrix (O/M+O/L+O), ToS coexistence model, PEP integration (hybrid cascade with rule-based-only fallback), Management API client, S2S authentication, 88+ conformance test vectors, Open Core Exclusions (§13), GitHub Repository Structure (§14), and deployment pattern cross-reference (§2.7)
 - **License**: MPL 2.0 (open interfaces); Gimel ToS (Type C proprietary interfaces)
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.

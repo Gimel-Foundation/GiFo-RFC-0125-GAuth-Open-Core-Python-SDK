@@ -1837,9 +1837,9 @@ Three capabilities are **excluded** from the open-source license. These are prop
 
 | # | Exclusion | Slot | Adapter Interface | Tariff Availability | Phase |
 |---|-----------|------|-------------------|---------------------|-------|
-| 1 | **AI-Enabled Governance** | 5 (`ai_governance`) | `GovernanceAdapter` | M, L | Available |
-| 2 | **Web3 Identity Integration** | 6 (`web3_identity`) | `Web3IdentityAdapter` | M (null or attested), L | Phase 2 |
-| 3 | **DNA-Based Identities / PQC** | 7 (`dna_identity`) | `DNAIdentityAdapter` | L only | Phase 3 |
+| 1 | **AI-Enabled Governance** | 5 (`ai_governance`) | `GovernanceAdapter` | M+O, L+O | Available |
+| 2 | **Web3 Identity Integration** | 6 (`web3_identity`) | `Web3IdentityAdapter` | M+O (null or attested), L+O | Phase 2 |
+| 3 | **DNA-Based Identities / PQC** | 7 (`dna_identity`) | `DNAIdentityAdapter` | L+O only | Phase 3 |
 
 ### 14.3 What Open Core Includes Without Exclusions
 
