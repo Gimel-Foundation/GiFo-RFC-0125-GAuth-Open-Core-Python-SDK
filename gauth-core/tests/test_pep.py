@@ -439,7 +439,7 @@ class TestHybridCascadeEscalation:
         assert len(esc_checks) == 1
         assert esc_checks[0]["result"] == "fail"
 
-    def test_auth_pep_unreachable_fail_closed(self):
+    def test_auth_pep_unreachable_rule_based_fallback(self):
         class FailingAuthPEP:
             def escalate(self, request):
                 raise ConnectionError("Auth PEP unreachable")
@@ -452,10 +452,11 @@ class TestHybridCascadeEscalation:
             action=_action("file.write", "src/main.py"),
             context=_context(),
         )
-        assert result["decision"] == "DENY"
+        assert result["decision"] == "CONSTRAIN"
         esc_checks = [c for c in result["checks"] if c["check_id"] == "CHK-ESC"]
         assert len(esc_checks) == 1
         assert esc_checks[0]["violation_code"] == "AUTH_PEP_UNREACHABLE"
+        assert esc_checks[0]["severity"] == "warning"
 
     def test_no_escalation_without_auth_pep(self):
         cred = _constrain_credential()

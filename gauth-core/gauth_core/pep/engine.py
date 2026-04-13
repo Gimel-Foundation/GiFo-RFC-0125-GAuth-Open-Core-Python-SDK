@@ -388,13 +388,13 @@ class PEPEngine:
                 "check_id": "CHK-ESC",
                 "check_name": "Auth PEP Escalation",
                 "result": "fail",
-                "severity": CheckSeverity.ERROR.value,
+                "severity": CheckSeverity.WARNING.value,
                 "violation_code": "AUTH_PEP_UNREACHABLE",
-                "message": f"Auth PEP unreachable, fail-closed: {exc}",
-                "details": {"escalation": True, "fallback": "DENY"},
+                "message": f"Auth PEP unreachable, rule-based-only fallback: {exc}",
+                "details": {"escalation": True, "fallback": "CONSTRAIN"},
             }
             local_checks.append(fallback_check)
-            return Decision.DENY, local_checks, local_constraints
+            return decision, local_checks, local_constraints
 
     def batch_enforce(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [self.enforce_action(request=req) for req in requests]

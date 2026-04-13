@@ -895,9 +895,15 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
           `Auth PEP returned invalid decision '${authDecision}', fail-closed`));
       }
     } catch (err) {
-      decision = "DENY";
-      checks.push(fail("CHK-ESC", "Auth PEP Escalation", "AUTH_PEP_UNREACHABLE",
-        `Auth PEP unreachable, fail-closed: ${err instanceof Error ? err.message : "unknown"}`));
+      checks.push({
+        check_id: "CHK-ESC",
+        name: "Auth PEP Escalation",
+        result: "fail" as const,
+        severity: "warning" as const,
+        violation_code: "AUTH_PEP_UNREACHABLE",
+        message: `Auth PEP unreachable, rule-based-only fallback: ${err instanceof Error ? err.message : "unknown"}`,
+        details: { escalation: true, fallback: "CONSTRAIN" },
+      });
     }
   }
 
