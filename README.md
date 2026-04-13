@@ -167,7 +167,7 @@ This project is licensed under the [Mozilla Public License 2.0](LICENSE).
 
 | Layer | License | Scope | Revocable? |
 |-------|---------|-------|------------|
-| SDK source code | MPL 2.0 | File-level copyleft on SDK files; your own files in separate modules remain under your chosen license | No — irrevocable (subject to compliance with MPL 2.0 and Gimel Foundation Additional Terms) |
+| SDK source code | MPL 2.0 | File-level copyleft on SDK files; your own files in separate modules remain under your chosen license | No — irrevocable, as long as acting in line with MPL 2.0 as well as the Legal Terms of Gimel Foundation |
 | Proprietary Gimel services | Gimel Technologies ToS | Governs access to Gimel-hosted services (Auth-as-a-Service, Foundry, Wallet, managed infrastructure, Type C adapters) | Yes — service relationship |
 | Open specifications (RFCs) | Apache 2.0 | Interoperability protocols (RFC 0116, 0117, 0118) | No — irrevocable |
 

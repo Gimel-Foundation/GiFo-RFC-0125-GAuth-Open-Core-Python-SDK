@@ -6,7 +6,7 @@
 **Audience:** SDK Teams (Python, TypeScript, Rust, Go, .NET)
 **Status:** PUBLIC PREVIEW
 **License:** Mozilla Public License 2.0 (open interfaces); Gimel Technologies Terms of Service (Type C proprietary interfaces)
-**Builds on:** GiFo-RFC 0116 v2.2, GiFo-RFC 0117 v1.2, GiFo-RFC 0118 v1.1, GAuth Internal Spec v1.2
+**Builds on:** GiFo-RFC 0116 v2.2, GiFo-RFC 0117 v1.2, GiFo-RFC 0118 v1.1, GAuth Internal Spec v1.3
 
 ---
 
