@@ -214,8 +214,36 @@ class TestPoaMapSummary:
             allowed_actions=["file.read"],
             allowed_decisions=["approve"],
         )
-        assert summary.allowedActions == ["file.read"]
-        assert summary.allowedDecisions == ["approve"]
+        assert summary.allowed_actions == ["file.read"]
+        assert summary.allowed_decisions == ["approve"]
+
+    def test_poa_map_summary_accepts_camel_case_input(self):
+        from gauth_core.schema.mgmt import PoaMapSummary
+        summary = PoaMapSummary(
+            mandate_id="mdt_123",
+            subject="agent_1",
+            governance_profile="minimal",
+            status=MandateStatus.ACTIVE,
+            allowedActions=["file.read"],
+            allowedDecisions=["approve"],
+        )
+        assert summary.allowed_actions == ["file.read"]
+        assert summary.allowed_decisions == ["approve"]
+
+    def test_poa_map_summary_serialization_includes_alias(self):
+        from gauth_core.schema.mgmt import PoaMapSummary
+        summary = PoaMapSummary(
+            mandate_id="mdt_123",
+            subject="agent_1",
+            governance_profile="minimal",
+            status=MandateStatus.ACTIVE,
+            allowed_actions=["file.read"],
+            allowed_decisions=["approve"],
+        )
+        data = summary.model_dump(by_alias=True)
+        assert "allowedActions" in data
+        assert "allowedDecisions" in data
+        assert data["allowedActions"] == ["file.read"]
 
 
 class TestTariffGating:

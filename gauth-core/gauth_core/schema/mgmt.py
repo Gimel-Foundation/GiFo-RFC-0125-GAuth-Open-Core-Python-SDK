@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from gauth_core.schema.enums import ManagementErrorCode, MandateStatus, OperationType
 from gauth_core.schema.poa import BudgetDetail, DelegationEntry, MandateRequirements, MandateScope, SessionLimits
@@ -299,21 +299,15 @@ class PoaPermissionEntry(BaseModel):
 
 
 class PoaMapSummary(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     mandate_id: str
     subject: str
     governance_profile: str
     status: MandateStatus
     permissions: list[PoaPermissionEntry] = Field(default_factory=list)
-    allowed_actions: list[str] = Field(default_factory=list)
-    allowed_decisions: list[str] = Field(default_factory=list)
-
-    @property
-    def allowedActions(self) -> list[str]:
-        return self.allowed_actions
-
-    @property
-    def allowedDecisions(self) -> list[str]:
-        return self.allowed_decisions
+    allowed_actions: list[str] = Field(default_factory=list, alias="allowedActions")
+    allowed_decisions: list[str] = Field(default_factory=list, alias="allowedDecisions")
 
 
 class HealthResponse(BaseModel):
