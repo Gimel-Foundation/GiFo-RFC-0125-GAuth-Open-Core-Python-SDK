@@ -6,6 +6,7 @@ import {
   phaseValues,
   operationTypeValues,
   shellModeValues,
+  tariffValues,
 } from "./enums";
 
 export const governanceProfileSchema = z.enum(governanceProfileValues);
@@ -352,3 +353,23 @@ export const paginatedResponseSchema = z.object({
   total: z.number().int().min(0),
 });
 export type PaginatedResponse = z.infer<typeof paginatedResponseSchema>;
+
+export const tariffSchema = z.enum(tariffValues);
+
+export const poaPermissionEntrySchema = z.object({
+  action: z.string(),
+  resource: z.string().optional(),
+  effect: z.string(),
+});
+export type PoaPermissionEntryZod = z.infer<typeof poaPermissionEntrySchema>;
+
+export const poaMapSummarySchema = z.object({
+  mandate_id: z.string(),
+  subject: z.string(),
+  governance_profile: governanceProfileSchema,
+  status: mandateStatusSchema,
+  permissions: z.array(poaPermissionEntrySchema).default([]),
+  allowed_actions: z.array(z.string()).default([]),
+  allowed_decisions: z.array(z.string()).default([]),
+});
+export type PoaMapSummaryZod = z.infer<typeof poaMapSummarySchema>;

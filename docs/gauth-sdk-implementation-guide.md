@@ -817,25 +817,15 @@ For Type C slots, this endpoint:
 
 ### 6.1 Tariff Codes
 
-| Code | Name | Description |
-|------|------|-------------|
-| **O** | Open Core | Self-hosted only. No Gimel services. Rule-based PEP enforcement only. |
-| **S** | Small | Entry paid tier. Selected Gimel-hosted services. |
-| **M** | Medium | Full platform. AI governance, all Type A+B+selected C. |
-| **L** | Large | Enterprise. All adapter types. Priority support. |
+| Code | Wire Format | `openCoreActive` | Description |
+|------|-------------|-------------------|-------------|
+| **O** | `"O"` | `false` | Open Core. Self-hosted only. No Gimel services. Rule-based PEP enforcement only. |
+| **M+O** | `"M+O"` | `true` | Hybrid service. Self-hosted Open Core + Gimel platform services (AI governance, Type A+B+selected C). |
+| **L+O** | `"L+O"` | `true` | Hybrid enterprise. Self-hosted Open Core + all Gimel adapter types. Priority support. |
 
-> **Note:** Tariff code `G` exists for internal Gimel team use only (beta testing, M-equivalent with auto-replenish billing). It is **not part of the public SDK surface**. SDK implementations MUST NOT expose Tariff G to third-party consumers. The G→M equivalence logic is handled server-side by GAuth and is transparent to SDKs — if a G-tariff user calls the SDK, the server resolves it to M-equivalent behavior automatically.
+SDK implementations MUST resolve the effective adapter level via `tariffEffectiveLevel(tariff)` before checking the deployment policy matrix. M+O and L+O map to their respective platform adapter levels for gating purposes.
 
-**Hybrid tariff codes (v0.91):** Two additional public tariff codes represent hybrid deployments where self-hosted Open Core runs alongside Gimel-hosted proprietary services:
-
-| Code | Name | Effective Adapter Level | `openCoreActive` | Description |
-|------|------|------------------------|-------------------|-------------|
-| **M+O** | `gimel_mo_hybrid_service` | M | `true` | Self-hosted Open Core + Gimel M-tier services |
-| **L+O** | `gimel_lo_hybrid_product` | L | `true` | Self-hosted Open Core + Gimel L-tier enterprise services |
-
-M+O is treated identically to M for adapter access gating. L+O is treated identically to L. The `openCoreActive` flag indicates that the customer is running a self-hosted Open Core deployment alongside Gimel-hosted services. SDK implementations MUST resolve the effective adapter level via `tariffEffectiveLevel(tariff)` before checking the deployment policy matrix.
-
-**Open Core design principle:** Tariff O provides the full PEP enforcement pipeline (all 16 checks per RFC 0117 §9.1) using **rule-based evaluation only**. AI-powered governance (G-Agent 1, G-Agent 2, G-Agent 3) is not available at this tier — the `ai_governance` slot is always `null`. This means the system operates without an AI second pass: every review (permissions, restrictions, threats) is evaluated by rules alone. This is by design — Open Core users get production-grade authorization without any dependency on Gimel-hosted AI services.
+**Open Core design principle:** Tariff O provides the full PEP enforcement pipeline (all 16 checks per RFC 0117 §9.1) using **rule-based evaluation only**. AI-powered governance is not available at this tier — the `ai_governance` slot is always `null`. This means the system operates without an AI second pass: every review (permissions, restrictions, threats) is evaluated by rules alone. This is by design — Open Core users get production-grade authorization without any dependency on Gimel-hosted AI services.
 
 ### 6.2 Deployment Policy Matrix
 
@@ -843,24 +833,23 @@ This matrix defines adapter availability per tariff per adapter type. SDK implem
 
 **Type A/B/C — Connector Slot Matrix:**
 
-| Slot | Type | O | S | M | L |
-|------|------|---|---|---|---|
-| `pdp` | Internal | active_always | active_always | active_always | active_always |
-| `oauth_engine` | A | user_provided_required | gimel_or_user | gimel_or_user | gimel_or_user |
-| `foundry` | B | null_or_user | gimel_or_user | gimel_or_user | gimel_or_user |
-| `wallet` | B | null_or_user | gimel_or_user | gimel_or_user | gimel_or_user |
-| `ai_governance` | C | null | null | attested_gimel | attested_gimel |
-| `web3_identity` | C | null | null | null_or_attested_gimel | attested_gimel |
-| `dna_identity` | C | null | null | null | attested_gimel |
+| Slot | Type | O | M+O | L+O |
+|------|------|---|-----|-----|
+| `pdp` | Internal | active_always | active_always | active_always |
+| `oauth_engine` | A | user_provided_required | gimel_or_user | gimel_or_user |
+| `foundry` | B | null_or_user | gimel_or_user | gimel_or_user |
+| `wallet` | B | null_or_user | gimel_or_user | gimel_or_user |
+| `ai_governance` | C | null | attested_gimel | attested_gimel |
+| `web3_identity` | C | null | null_or_attested_gimel | attested_gimel |
+| `dna_identity` | C | null | null | attested_gimel |
 
 **Type D — Billing Adapter Availability:**
 
 | Tariff | Billing Adapter State | Trigger | Billing Behavior |
 |--------|----------------------|---------|-----------------|
 | **O** | Inactive (null) | No Gimel-hosted services used | No platform charges. User runs self-hosted only. |
-| **S** | Auto-active | Activates when any Gimel-hosted Type A or B adapter is registered | Metered billing. Credits consumed per operation. |
-| **M** | Auto-active | Always active (full platform) | Metered billing. Credits consumed per operation. |
-| **L** | Auto-active | Always active (enterprise) | Metered billing. Credits consumed per operation. Priority support. |
+| **M+O** | Auto-active | Always active (hybrid platform) | Metered billing. Credits consumed per operation. |
+| **L+O** | Auto-active | Always active (hybrid enterprise) | Metered billing. Credits consumed per operation. Priority support. |
 
 The Billing adapter (Type D) is **never directly registered or controlled by SDK consumers**. It activates automatically based on Gimel-hosted service usage. Billing terms are governed by your service agreement.
 
@@ -886,8 +875,8 @@ function checkTariffGate(slotName, tariff):
     if availability == "null":
         return { allowed: false, reason: "Slot not available for tariff" }
 
-    if adapterType == "C" and (effectiveTariff == "O" or effectiveTariff == "S"):
-        return { allowed: false, reason: "Type C requires tariff M or higher" }
+    if adapterType == "C" and effectiveTariff == "O":
+        return { allowed: false, reason: "Type C requires hybrid tariff (M+O or L+O)" }
 
     switch availability:
         case "active_always":
@@ -1346,31 +1335,29 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 ### 11.1 Adapter Registration Tests
 
 #### CT-REG-001: Register Type A adapter (OAuth Engine)
-- **Input:** Register `HydraOAuthEngineAdapter` to slot `oauth_engine`, tariff `M`
+- **Input:** Register `HydraOAuthEngineAdapter` to slot `oauth_engine`, tariff `M+O`
 - **Expected:** `{ success: true }`, slot status = `active`
 
 #### CT-REG-002: Register Type B adapter (Foundry)
-- **Input:** Register `GimelFoundryAdapter` to slot `foundry`, tariff `S`
+- **Input:** Register `GimelFoundryAdapter` to slot `foundry`, tariff `M+O`
 - **Expected:** `{ success: true }`, slot status = `active`
 
 #### CT-REG-003: Register Type C adapter without attestation
-- **Input:** Register `GAgentGovernanceAdapter` to slot `ai_governance`, tariff `M`, no attestation
+- **Input:** Register `GAgentGovernanceAdapter` to slot `ai_governance`, tariff `M+O`, no attestation
 - **Expected:** `{ success: true }`, slot status = `pending` (not `active`)
 
 #### CT-REG-004: Register Type C adapter with attestation
-- **Input:** Register to slot `ai_governance`, tariff `M`, then call `satisfyAttestation("ai_governance")`
+- **Input:** Register to slot `ai_governance`, tariff `M+O`, then call `satisfyAttestation("ai_governance")`
 - **Expected:** slot status transitions from `pending` → `active`
 
-#### CT-REG-005: Tariff gate blocks Type C for tariff S
-- **Input:** Register to slot `ai_governance`, tariff `S`
-- **Expected:** tariff gate returns `{ allowed: false }`, availability = `null`
+#### CT-REG-005: (Reserved)
 
 #### CT-REG-006: Tariff gate blocks Type C for tariff O
 - **Input:** Register to slot `ai_governance`, tariff `O`
 - **Expected:** tariff gate returns `{ allowed: false }`, availability = `null`
 
-#### CT-REG-007: Tariff M enables Type C slot
-- **Input:** `checkTariffGate("ai_governance", "M")`
+#### CT-REG-007: Tariff M+O enables Type C slot
+- **Input:** `checkTariffGate("ai_governance", "M+O")`
 - **Expected:** availability = `attested_gimel`, `{ allowed: true }` (after attestation)
 
 #### CT-REG-008: Unregister mandatory slot rejected
@@ -1381,8 +1368,8 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Input:** `unregister("foundry")` (after registration)
 - **Expected:** `{ success: true }`, slot status = `null`, implementationLabel = `"None"`
 
-#### CT-REG-010: DNA Identity blocked for tariff M (requires L)
-- **Input:** `checkTariffGate("dna_identity", "M")`
+#### CT-REG-010: DNA Identity blocked for tariff M+O (requires L+O)
+- **Input:** `checkTariffGate("dna_identity", "M+O")`
 - **Expected:** availability = `null`, `{ allowed: false }`
 
 #### CT-REG-011: Valid Ed25519 manifest accepted
@@ -1754,7 +1741,7 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 | **Status transitions** | — | — | — | §6 (state machine, supersession) | — |
 | **Budget operations** | — | — | — | §7 (increase, consume, TTL) | — |
 | **Delegation lifecycle** | §5 (A2A policies) | — | §11 (chain enforcement) | §8 (delegation CRUD) | — |
-| **Tariff model** | — | — | — | — | §4 (O/S/M/L) |
+| **Tariff model** | — | — | — | — | §4 (O/M+O/L+O) |
 | **Connector slots** | — | — | — | — | §1.1 (7-slot model) |
 | **Tariff gating** | — | — | — | — | §4.2 (feature matrix) |
 | **License/ToS** | — | — | — | — | §1.5.4 (license switch) |
@@ -2352,8 +2339,8 @@ All normative schemas are hosted at `gimelfoundation.com`.
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D × O/S/M/L tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
-| 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
+| 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
+| 1.0.1 | 2026-04-10 | Auth Team | Consolidated internal tariff codes to public-facing codes only (O, M+O, L+O). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
 | 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (coexist with MPL 2.0 for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. Dual-layer coexistence model explicitly documented (ToS applies in addition to MPL 2.0, not as a replacement). Repository legal file obligations and key legal points all SDK repos must make explicit. |
 | 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. |
 | 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: dual-stream PR-based contribution model (both Stream A community PRs and Stream B architecture pushes merge to `main` through reviewed PRs — Board of Trustees reviews all PRs pre-merge), `replit` integration branch for architecture team pushes from Replit sandbox, `main` as protected release branch (no direct pushes, all tags created here), release authority (architecture team decides versions, Board reviews releases pre-tag), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags on main, immutable), pre-release version format (alpha/beta/rc, MUST NOT publish as default), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates on all PRs, CHANGELOG format (Keep a Changelog with 6 required section headers: Added/Changed/Deprecated/Removed/Fixed/Security), 10-step release checklist (including reviewed PR merge step), breaking change communication protocol (deprecation notice, migration guide, (**BREAKING**) marker), Board of Trustees review scope (pre-merge gate for both streams, pre-tag gate for releases). Added §15.7 CONTRIBUTING.md Template Requirements (8-point canonical template). Updated §15.1 repo layout: added CHANGELOG.md, updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. Companion document: `docs/contribution-and-release-policy.md` v1.0 (operational workflow, CI gates, branch protection rules, auditability guarantees). |
