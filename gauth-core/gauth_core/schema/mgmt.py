@@ -307,6 +307,14 @@ class PoaMapSummary(BaseModel):
     allowed_actions: list[str] = Field(default_factory=list)
     allowed_decisions: list[str] = Field(default_factory=list)
 
+    @property
+    def allowedActions(self) -> list[str]:
+        return self.allowed_actions
+
+    @property
+    def allowedDecisions(self) -> list[str]:
+        return self.allowed_decisions
+
 
 class HealthResponse(BaseModel):
     status: str = "ok"

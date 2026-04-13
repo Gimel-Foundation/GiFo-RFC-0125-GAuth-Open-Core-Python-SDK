@@ -203,3 +203,95 @@ class TestPoaMapSummary:
         assert entry.resource is None
         assert entry.action == "deploy"
         assert entry.effect == "deny"
+
+    def test_poa_map_summary_camel_case_aliases(self):
+        from gauth_core.schema.mgmt import PoaMapSummary
+        summary = PoaMapSummary(
+            mandate_id="mdt_123",
+            subject="agent_1",
+            governance_profile="minimal",
+            status=MandateStatus.ACTIVE,
+            allowed_actions=["file.read"],
+            allowed_decisions=["approve"],
+        )
+        assert summary.allowedActions == ["file.read"]
+        assert summary.allowedDecisions == ["approve"]
+
+
+class TestTariffGating:
+    def test_mo_ai_governance_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("ai_governance", Tariff.MO)
+        assert result.allowed is True
+        assert result.availability == "attested_gimel"
+
+    def test_lo_ai_governance_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("ai_governance", Tariff.LO)
+        assert result.allowed is True
+        assert result.availability == "attested_gimel"
+
+    def test_o_ai_governance_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("ai_governance", Tariff.O)
+        assert result.allowed is False
+        assert result.availability == "null"
+
+    def test_o_pdp_always_active(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("pdp", Tariff.O)
+        assert result.allowed is True
+        assert result.availability == "active_always"
+
+    def test_mo_pdp_always_active(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("pdp", Tariff.MO)
+        assert result.allowed is True
+        assert result.availability == "active_always"
+
+    def test_mo_dna_identity_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("dna_identity", Tariff.MO)
+        assert result.allowed is False
+        assert result.availability == "null"
+
+    def test_lo_dna_identity_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("dna_identity", Tariff.LO)
+        assert result.allowed is True
+        assert result.availability == "attested_gimel"
+
+    def test_o_oauth_engine_user_provided(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("oauth_engine", Tariff.O)
+        assert result.allowed is True
+        assert result.availability == "user_provided_required"
+
+    def test_mo_oauth_engine_gimel_or_user(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("oauth_engine", Tariff.MO)
+        assert result.allowed is True
+        assert result.availability == "gimel_or_user"
+
+    def test_mo_web3_identity_attested(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("web3_identity", Tariff.MO)
+        assert result.allowed is True
+        assert result.availability == "null_or_attested_gimel"
+
+    def test_lo_web3_identity_attested(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("web3_identity", Tariff.LO)
+        assert result.allowed is True
+        assert result.availability == "attested_gimel"
+
+    def test_o_web3_identity_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("web3_identity", Tariff.O)
+        assert result.allowed is False
+        assert result.availability == "null"
+
+    def test_unknown_slot_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("nonexistent", Tariff.MO)
+        assert result.allowed is False

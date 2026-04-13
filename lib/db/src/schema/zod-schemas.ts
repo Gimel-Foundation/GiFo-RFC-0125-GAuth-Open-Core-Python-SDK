@@ -371,5 +371,7 @@ export const poaMapSummarySchema = z.object({
   permissions: z.array(poaPermissionEntrySchema).default([]),
   allowed_actions: z.array(z.string()).default([]),
   allowed_decisions: z.array(z.string()).default([]),
+  allowedActions: z.array(z.string()).optional(),
+  allowedDecisions: z.array(z.string()).optional(),
 });
 export type PoaMapSummaryZod = z.infer<typeof poaMapSummarySchema>;

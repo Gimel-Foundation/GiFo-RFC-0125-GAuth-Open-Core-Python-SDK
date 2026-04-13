@@ -12,8 +12,11 @@ from gauth_core.schema.enums import (
     ManagementErrorCode,
     Tariff,
     TARIFF_ADAPTER_ACCESS,
+    DEPLOYMENT_POLICY_MATRIX,
+    TariffGateResult,
     tariff_effective_level,
     is_open_core_active,
+    check_tariff_gate,
 )
 from gauth_core.schema.poa import (
     ToolPolicy,
@@ -115,8 +118,11 @@ __all__ = [
     "PoaMapSummary",
     "Tariff",
     "TARIFF_ADAPTER_ACCESS",
+    "DEPLOYMENT_POLICY_MATRIX",
+    "TariffGateResult",
     "tariff_effective_level",
     "is_open_core_active",
+    "check_tariff_gate",
     "EnforcementRequest",
     "EnforcementDecision",
     "EnforcementError",

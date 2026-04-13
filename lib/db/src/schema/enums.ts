@@ -111,4 +111,35 @@ export interface PoaMapSummary {
   permissions: PoaPermissionEntry[];
   allowed_actions: string[];
   allowed_decisions: string[];
+  allowedActions?: string[];
+  allowedDecisions?: string[];
+}
+
+export const DEPLOYMENT_POLICY_MATRIX: Record<string, Record<string, string>> = {
+  pdp:            { O: "active_always", M: "active_always", L: "active_always" },
+  oauth_engine:   { O: "user_provided_required", M: "gimel_or_user", L: "gimel_or_user" },
+  foundry:        { O: "null_or_user", M: "gimel_or_user", L: "gimel_or_user" },
+  wallet:         { O: "null_or_user", M: "gimel_or_user", L: "gimel_or_user" },
+  ai_governance:  { O: "null", M: "attested_gimel", L: "attested_gimel" },
+  web3_identity:  { O: "null", M: "null_or_attested_gimel", L: "attested_gimel" },
+  dna_identity:   { O: "null", M: "null", L: "attested_gimel" },
+};
+
+export interface TariffGateResult {
+  allowed: boolean;
+  availability: string;
+  reason?: string;
+}
+
+export function checkTariffGate(slotName: string, tariff: Tariff): TariffGateResult {
+  const effective = tariffEffectiveLevel(tariff);
+  const matrix = DEPLOYMENT_POLICY_MATRIX[slotName];
+  if (!matrix) {
+    return { allowed: false, availability: "null", reason: `Unknown slot: ${slotName}` };
+  }
+  const availability = matrix[effective] ?? "null";
+  if (availability === "null") {
+    return { allowed: false, availability: "null", reason: "Slot not available for tariff" };
+  }
+  return { allowed: true, availability };
 }
