@@ -37,7 +37,7 @@ def create_app(
     app = FastAPI(
         title="GAuth Open Core",
         description="GAuth Protocol Suite — Management API & PEP (RFCs 0116, 0117, 0118)",
-        version="0.1.0",
+        version="0.91.0",
     )
 
     @app.exception_handler(ManagementError)

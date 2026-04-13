@@ -2,6 +2,8 @@
 
 **Power of Attorney compliance monitoring for AI agents.**
 
+**Version 0.91 — Public Preview**
+
 [![License](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
 

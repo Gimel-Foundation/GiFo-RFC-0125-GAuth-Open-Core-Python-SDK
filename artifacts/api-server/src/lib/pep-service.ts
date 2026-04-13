@@ -20,6 +20,16 @@ import {
 } from "@workspace/db";
 import * as mgmt from "./mgmt-service";
 
+export interface AuthPEPClient {
+  escalate(request: Record<string, unknown>): Promise<{ decision: string; [key: string]: unknown }>;
+}
+
+let _authPepClient: AuthPEPClient | null = null;
+
+export function setAuthPEPClient(client: AuthPEPClient | null): void {
+  _authPepClient = client;
+}
+
 type Scope = {
   core_verbs: Record<string, unknown>;
   platform_permissions: Record<string, unknown>;
@@ -854,6 +864,43 @@ async function enforceActionInternal(req: EnforcementRequest): Promise<Enforceme
     decision = "PERMIT";
   }
 
+  if (decision === "CONSTRAIN" && _authPepClient !== null) {
+    try {
+      const escalationResult = await _authPepClient.escalate({
+        request_id: req.request_id,
+        credential: cred,
+        action,
+        context: ctx,
+        local_decision: decision,
+        local_constraints: allConstraints,
+      });
+      const authDecision = escalationResult.decision;
+      if (authDecision === "PERMIT" || authDecision === "DENY" || authDecision === "CONSTRAIN") {
+        decision = authDecision as typeof decision;
+        checks.push({
+          check_id: "CHK-ESC",
+          name: "Auth PEP Escalation",
+          result: authDecision === "DENY" ? "fail" : "pass",
+          severity: authDecision === "DENY" ? "error" : "info",
+          violation_code: authDecision === "DENY" ? "AUTH_PEP_DENIED" : null,
+          message: `Auth PEP resolved CONSTRAIN → ${authDecision}`,
+          details: { auth_pep_decision: authDecision, escalation: true },
+        });
+        if (authDecision === "PERMIT") {
+          allConstraints.length = 0;
+        }
+      } else {
+        decision = "DENY";
+        checks.push(fail("CHK-ESC", "Auth PEP Escalation", "AUTH_PEP_INVALID_RESPONSE",
+          `Auth PEP returned invalid decision '${authDecision}', fail-closed`));
+      }
+    } catch (err) {
+      decision = "DENY";
+      checks.push(fail("CHK-ESC", "Auth PEP Escalation", "AUTH_PEP_UNREACHABLE",
+        `Auth PEP unreachable, fail-closed: ${err instanceof Error ? err.message : "unknown"}`));
+    }
+  }
+
   const violations = checks
     .filter(c => c.result === "fail" && c.violation_code)
     .map(c => ({
@@ -945,6 +992,7 @@ export function getPolicy() {
     decisions: ["PERMIT", "DENY", "CONSTRAIN"],
     fail_closed: true,
     two_pass_delegation: true,
+    hybrid_cascade: _authPepClient !== null,
     governance_profiles: Object.keys(CEILING_TABLE),
   };
 }

@@ -1,10 +1,10 @@
 # GAuth SDK Implementation Guide
 
-**Version:** 1.3
-**Date:** 2026-04-10
+**Version:** 0.91 — Public Preview
+**Date:** 2026-04-13
 **Authors:** Gimel Foundation — Auth Team
 **Audience:** SDK Teams (Python, TypeScript, Rust, Go, .NET)
-**Status:** DRAFT — SDK Team Review
+**Status:** PUBLIC PREVIEW
 **License:** Mozilla Public License 2.0 (open interfaces); Gimel Technologies Terms of Service (Type C proprietary interfaces)
 **Builds on:** GiFo-RFC 0116 v2.2, GiFo-RFC 0117 v1.2, GiFo-RFC 0118 v1.1, GAuth Internal Spec v1.2
 
@@ -279,7 +279,7 @@ All three integration patterns converge on the same adapter interfaces defined i
 |------|---------|-----------------|-------------|------|
 | **A** — OAuth Engine | MPL 2.0 (RFC 0116 §8) | Yes — any OIDC server | No | Credits when using Gimel-hosted |
 | **B** — Foundry/Wallet | MPL 2.0 (RFC 0116 §9.3) | Yes — open interface | No | Credits when using Gimel-hosted |
-| **C** — Exclusive IP | Gimel Technologies ToS (proprietary) | No — Gimel-exclusive | Yes (Ed25519 manifest) | Credits + license swap |
+| **C** — Exclusive IP | Gimel Technologies ToS (proprietary) | No — Gimel-exclusive | Yes (Ed25519 manifest) | Credits + Gimel ToS (coexists with MPL 2.0) |
 | **D** — Billing | Internal only | No — Gimel-internal | No | Automatic |
 
 **SDK obligation:** SDKs MUST model all four types. Type D is not directly callable by SDK consumers but the SDK must understand that billing operations are triggered automatically when Gimel-hosted adapters are active.
@@ -825,6 +825,15 @@ For Type C slots, this endpoint:
 | **L** | Large | Enterprise. All adapter types. Priority support. |
 
 > **Note:** Tariff code `G` exists for internal Gimel team use only (beta testing, M-equivalent with auto-replenish billing). It is **not part of the public SDK surface**. SDK implementations MUST NOT expose Tariff G to third-party consumers. The G→M equivalence logic is handled server-side by GAuth and is transparent to SDKs — if a G-tariff user calls the SDK, the server resolves it to M-equivalent behavior automatically.
+
+**Hybrid tariff codes (v0.91):** Two additional public tariff codes represent hybrid deployments where self-hosted Open Core runs alongside Gimel-hosted proprietary services:
+
+| Code | Name | Effective Adapter Level | `openCoreActive` | Description |
+|------|------|------------------------|-------------------|-------------|
+| **M+O** | `gimel_mo_hybrid_service` | M | `true` | Self-hosted Open Core + Gimel M-tier services |
+| **L+O** | `gimel_lo_hybrid_product` | L | `true` | Self-hosted Open Core + Gimel L-tier enterprise services |
+
+M+O is treated identically to M for adapter access gating. L+O is treated identically to L. The `openCoreActive` flag indicates that the customer is running a self-hosted Open Core deployment alongside Gimel-hosted services. SDK implementations MUST resolve the effective adapter level via `tariffEffectiveLevel(tariff)` before checking the deployment policy matrix.
 
 **Open Core design principle:** Tariff O provides the full PEP enforcement pipeline (all 16 checks per RFC 0117 §9.1) using **rule-based evaluation only**. AI-powered governance (G-Agent 1, G-Agent 2, G-Agent 3) is not available at this tier — the `ai_governance` slot is always `null`. This means the system operates without an AI second pass: every review (permissions, restrictions, threats) is evaluated by rules alone. This is by design — Open Core users get production-grade authorization without any dependency on Gimel-hosted AI services.
 
@@ -1534,6 +1543,30 @@ Every SDK MUST pass all conformance tests before certification. Tests are organi
 - **Input:** `action.region: "US"`, PoA `allowed_regions: ["global"]`
 - **Expected:** CHK-06 `pass` (wildcard matches all regions)
 
+#### CT-PEP-032: Hybrid cascade — CONSTRAIN escalated to PERMIT (CHK-ESC)
+- **Input:** Credential with `approval_mode: "supervised"`, verb with `requires_approval: true`, Auth PEP client configured, Auth PEP returns `PERMIT`
+- **Expected:** `decision: "PERMIT"`, CHK-ESC `pass`, `details.escalation: true`
+
+#### CT-PEP-033: Hybrid cascade — CONSTRAIN escalated to DENY (CHK-ESC)
+- **Input:** Same as CT-PEP-032 but Auth PEP returns `DENY`
+- **Expected:** `decision: "DENY"`, CHK-ESC `fail`, `violation_code: "AUTH_PEP_DENIED"`
+
+#### CT-PEP-034: Hybrid cascade — Auth PEP unreachable, fail-closed (CHK-ESC)
+- **Input:** Same as CT-PEP-032 but Auth PEP throws connection error
+- **Expected:** `decision: "DENY"`, CHK-ESC `fail`, `violation_code: "AUTH_PEP_UNREACHABLE"`
+
+#### CT-PEP-035: Hybrid cascade — no escalation without Auth PEP
+- **Input:** Same credential as CT-PEP-032 but no Auth PEP client configured
+- **Expected:** `decision: "CONSTRAIN"`, no CHK-ESC check in results
+
+#### CT-PEP-036: Hybrid cascade — no escalation on PERMIT
+- **Input:** Valid credential, all checks pass, Auth PEP client configured
+- **Expected:** `decision: "PERMIT"`, Auth PEP `escalate()` not called
+
+#### CT-PEP-037: Hybrid cascade — no escalation on DENY
+- **Input:** Credential with denied verb, Auth PEP client configured
+- **Expected:** `decision: "DENY"`, Auth PEP `escalate()` not called
+
 ### 11.3 Management API Tests
 
 #### CT-MGMT-001: Create mandate in DRAFT
@@ -1969,15 +2002,19 @@ GAuth Open Core is governed by a layered legal structure involving two entities:
 
 **Gimel Foundation gGmbH i.G.** — The foundation publishes the GiFo-RFCs and the open-source project. The Gimel Foundation Legal Terms apply to all use of GAuth, whether Open Core or proprietary.
 
-**Gimel Technologies** — The commercial entity that operates proprietary services. When a user chooses to use proprietary services (including the Excluded Components), a **license swap** occurs: the user moves from the open-source MPL 2.0 license to the Gimel Technologies Terms of Service. This swap is described in §7 (License & ToS State Machine) as the transition from `license_type: "mpl_2_0"` to `license_type: "gimel_tos"`.
+**Gimel Technologies** — The commercial entity that operates proprietary services. When a user chooses to use proprietary services (including the Excluded Components), the Gimel Technologies Terms of Service apply **in addition to** MPL 2.0 — not as a replacement. The `license_type` field in the customer record tracks the **service relationship** (whether the customer has accepted the Gimel Technologies ToS for proprietary service access), not the code license. SDK code and modifications to SDK files remain MPL 2.0 regardless.
 
-The license structure for SDK repositories:
+The license structure for SDK repositories (dual-layer coexistence):
 
-| Layer | Scope | Governing Terms |
-|-------|-------|-----------------|
-| **Gimel Foundation Legal Terms** | All use of GAuth (Open Core and proprietary) | Apply universally |
-| **MPL 2.0** | Open Core components only | Governs source code rights for Open Core |
-| **Gimel Technologies Terms of Service** | Proprietary services including Excluded Components | Apply after license swap when user opts into proprietary services |
+| Layer | License | Scope | Revocable? |
+|-------|---------|-------|------------|
+| SDK source code | MPL 2.0 | File-level copyleft on SDK files; customer's own files in separate modules remain under their chosen license | No — irrevocable (subject to compliance with MPL 2.0 and Gimel Foundation Additional Terms) |
+| Proprietary Gimel services | Gimel Technologies ToS | Governs access to Gimel-hosted services (Auth-as-a-Service, Foundry, Wallet, managed infrastructure, Type C adapters) | Yes — service relationship |
+| Open specifications (RFCs) | Apache 2.0 | Interoperability protocols (RFC 0116, 0117, 0118) | No — irrevocable |
+
+**Coexistence rule:** A customer may run the SDK in pure Open Core mode (MPL 2.0 only, self-hosted, no Gimel services) indefinitely. If they choose to use proprietary Gimel services, the Gimel Technologies ToS applies in addition to MPL 2.0. SDK code and modifications to SDK files remain MPL 2.0 regardless of the customer's tariff.
+
+**Downgrade protection:** If a hybrid customer (M+O or L+O) later drops the proprietary platform, they revert to Tariff O. The ToS terminates but the MPL 2.0 license is not revoked. The customer keeps all SDK code and modifications, as long as acting in line with MPL 2.0 as well as the Legal Terms of Gimel Foundation.
 
 The Excluded Components (Type C adapter implementations) are **outside the scope of the MPL 2.0** — the MPL 2.0 does not apply to them. The Gimel Technologies Terms of Service are the sole and independent legal basis for any use of Excluded Components.
 
@@ -1993,7 +2030,7 @@ The Excluded Components (Type C adapter implementations) are **outside the scope
 - The Gimel Foundation Legal Terms apply to all use of GAuth.
 - The MPL 2.0 applies to the Open Core components only. It does not extend to the Excluded Components.
 - The Excluded Components are not covered by the MPL 2.0. They are outside its scope entirely.
-- Use of any proprietary service or Excluded Component (Type C adapter) triggers a license swap from the MPL 2.0 to the Gimel Technologies Terms of Service, as described in §7 (License & ToS State Machine).
+- Use of any proprietary service or Excluded Component (Type C adapter) requires acceptance of the Gimel Technologies Terms of Service, which applies in addition to MPL 2.0 (coexistence model, not a replacement). The `license_type` field tracks the service relationship, as described in §7 (License & ToS State Machine).
 - The Gimel Technologies Terms of Service are the sole and independent legal basis governing proprietary features. No rights to create, distribute, or offer competing implementations within the three exclusion domains for the GAuth adapter slot system are granted by the MPL 2.0 or any other part of the Open Core license.
 - Contributors to Open Core components license their work under MPL 2.0. Contributions to Excluded Components require a separate Contributor License Agreement (CLA) with the Gimel Foundation.
 - For proprietary licensing inquiries: info@gimelid.com
@@ -2317,6 +2354,7 @@ All normative schemas are hosted at `gimelfoundation.com`.
 |---------|------|--------|---------|
 | 1.0 | 2026-04-09 | Auth Team | Initial release. All 7 adapter interfaces (+ BillingAdapter Type D), sealed registration protocol with Ed25519 manifest signing (RFC 8032) including JSON schema, JCS canonicalization, trusted namespace rules (`@gimel/*`), and revocation model, A/B/C/D × O/S/M/L tariff gating matrix, two-tier ToS state machine (Platform ToS + Proprietary Service ToS with version-bump re-acceptance), 88 conformance test vectors (18 registration incl. 8 manifest vectors, 31 PEP, 26 management, 9 license/attestation, 4 S2S), RFC cross-reference index, language-specific SDK guidance (Python, TypeScript, Rust, Go, .NET). |
 | 1.0.1 | 2026-04-10 | Auth Team | Removed Tariff G from public SDK surface (internal-only). Added Open Core design principle (Tariff O = rule-based PEP enforcement only, no AI governance). Updated tariff gating matrix, algorithm, and conformance test vectors accordingly. |
-| 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (apply after license swap for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. License swap mechanism from MPL 2.0 to Gimel Technologies ToS explicitly documented. Repository legal file obligations and key legal points all SDK repos must make explicit. |
+| 1.1 | 2026-04-10 | Auth Team + SDK Team | License corrected from Apache 2.0 to MPL 2.0 (all open interfaces). Removed internal billing surcharge details from public spec (§3.8, §5.2). Added §13 Open Core Exclusions (three proprietary exclusions explicitly named with license boundary table and Gimel Foundation Additional Terms). Added §14 GitHub Repository Structure (standard repo layout, README requirements, quick-start examples for Python and TypeScript, license/exclusions notice template, cross-language consistency rules). Added §14.6 Legal Framework: layered legal structure distinguishing Gimel Foundation Legal Terms (apply universally) from Gimel Technologies Terms of Service (coexist with MPL 2.0 for proprietary services). Exclusions are outside the scope of MPL 2.0; Gimel Technologies ToS is the sole and independent legal basis. Dual-layer coexistence model explicitly documented (ToS applies in addition to MPL 2.0, not as a replacement). Repository legal file obligations and key legal points all SDK repos must make explicit. |
 | 1.2 | 2026-04-10 | Auth Team + SDK Team | Added §2 Integration Patterns & Deployment Topology: three deployment patterns (Sidecar — claims provider SDK for existing OAuth servers, Gateway — PEP middleware for API gateways, Full Stack — integrated OAuth+Management+PEP bundle). OAuth Provider Compatibility Matrix with 6 providers (Hydra P0, Keycloak P1, Azure AD/Okta/Auth0 P2, Zitadel P3) mapped to patterns and SDK adapters. Adapter Interface Unification table showing all three patterns converge on the same RFC-defined contracts. All subsequent sections renumbered (+1). PEP schema URIs updated from v1.1 to v1.2 (aligning with RFC 0117 v1.2). "Builds on" updated to reference RFC 0117 v1.2. Appendix C expanded: added PoA Credential schema, Management Error schema, Sealed Adapter Manifest schema, and two well-known endpoints (adapter-keys.json, adapter-revocations.json). RFC Cross-Reference Index updated with integration patterns row. |
 | 1.3 | 2026-04-10 | Auth Team | Added §16 SDK Versioning & Release Policy: dual-stream PR-based contribution model (both Stream A community PRs and Stream B architecture pushes merge to `main` through reviewed PRs — Board of Trustees reviews all PRs pre-merge), `replit` integration branch for architecture team pushes from Replit sandbox, `main` as protected release branch (no direct pushes, all tags created here), release authority (architecture team decides versions, Board reviews releases pre-tag), Semantic Versioning 2.0 with independent per-language versioning, git tagging conventions (signed tags on main, immutable), pre-release version format (alpha/beta/rc, MUST NOT publish as default), guide version compatibility tracking (README badge + package metadata constant), conformance test CI gates on all PRs, CHANGELOG format (Keep a Changelog with 6 required section headers: Added/Changed/Deprecated/Removed/Fixed/Security), 10-step release checklist (including reviewed PR merge step), breaking change communication protocol (deprecation notice, migration guide, (**BREAKING**) marker), Board of Trustees review scope (pre-merge gate for both streams, pre-tag gate for releases). Added §15.7 CONTRIBUTING.md Template Requirements (8-point canonical template). Updated §15.1 repo layout: added CHANGELOG.md, updated CONTRIBUTING.md description. Updated §15.2 README badge requirements: added guide version compatibility badge. Companion document: `docs/contribution-and-release-policy.md` v1.0 (operational workflow, CI gates, branch protection rules, auditability guarantees). |
+| 0.91 | 2026-04-13 | Auth Team | **Public Preview.** Licensing reframed: "license swap" replaced with coexistence model (MPL 2.0 always applies to SDK code; Gimel Technologies ToS applies additionally for proprietary services). Downgrade protection clause added. Three-layer legal table. Added hybrid tariff codes: M+O (`gimel_mo_hybrid_service`, effective level M) and L+O (`gimel_lo_hybrid_product`, effective level L) with `openCoreActive` flag and `tariffEffectiveLevel()` resolver. Added `PoaMapSummary` type with `permissions`, `allowedActions`, `allowedDecisions` fields. PEP hybrid cascade escalation: CONSTRAIN decisions optionally forwarded to Auth PEP via `AuthPEPClient` protocol; Auth PEP unreachable → fail-closed (DENY). 6 new conformance test vectors (CT-PEP-032 through CT-PEP-037). All packages bumped to 0.91.0. |

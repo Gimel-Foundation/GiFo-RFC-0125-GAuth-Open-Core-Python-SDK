@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gauth-core"
-version = "0.1.0"
+version = "0.91.0"
 description = "GAuth Open Core SDK — Power of Attorney compliance monitoring for AI agents"
 readme = "README.md"
 license = "MPL-2.0"

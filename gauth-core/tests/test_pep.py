@@ -337,6 +337,16 @@ class TestEnforcementPolicy:
         assert len(policy["supported_checks"]) == 16
         assert policy["fail_mode"] == "closed"
         assert policy["delegation_evaluation"] == "two_pass"
+        assert policy["hybrid_cascade"] is False
+
+    def test_policy_with_auth_pep(self):
+        class FakeAuthPEP:
+            def escalate(self, request):
+                return {"decision": "PERMIT"}
+
+        engine = PEPEngine(auth_pep_client=FakeAuthPEP())
+        policy = engine.get_enforcement_policy()
+        assert policy["hybrid_cascade"] is True
 
 
 class TestHealth:
@@ -344,3 +354,148 @@ class TestHealth:
         health = engine.health()
         assert health["status"] == "ok"
         assert health["pep_interface_version"] == "1.1"
+
+
+def _make_live_mandate(cred):
+    return {
+        "mandate_id": cred["mandate_id"],
+        "status": "ACTIVE",
+        "scope": {
+            "governance_profile": cred["governance_profile"],
+            "phase": cred["phase"],
+            "core_verbs": cred["core_verbs"],
+            "platform_permissions": cred["platform_permissions"],
+            "allowed_paths": cred["allowed_paths"],
+            "denied_paths": cred["denied_paths"],
+            "allowed_sectors": cred.get("allowed_sectors", []),
+            "allowed_regions": cred.get("allowed_regions", []),
+            "allowed_transactions": cred.get("allowed_transactions", []),
+            "allowed_decisions": cred.get("allowed_decisions", []),
+        },
+        "requirements": {
+            "approval_mode": cred["approval_mode"],
+            "budget": {"total_cents": cred["budget_total_cents"], "remaining_cents": cred["budget_remaining_cents"]},
+            "ttl_seconds": cred["ttl_seconds"],
+            "session_limits": cred.get("session_limits", {}),
+        },
+        "budget_state": {
+            "total_cents": cred["budget_total_cents"],
+            "remaining_cents": cred["budget_remaining_cents"],
+        },
+    }
+
+
+def _repo_with_mandate(cred):
+    repo = InMemoryMandateRepository()
+    repo.create(_make_live_mandate(cred))
+    return repo
+
+
+def _constrain_credential():
+    return _valid_credential(
+        approval_mode="supervised",
+        core_verbs={
+            "file.read": {"allowed": True},
+            "file.write": {"allowed": True, "requires_approval": True},
+            "shell.execute": {"allowed": False},
+        },
+    )
+
+
+class TestHybridCascadeEscalation:
+    def test_constrain_escalated_to_permit(self):
+        class FakeAuthPEP:
+            def escalate(self, request):
+                return {"decision": "PERMIT"}
+
+        cred = _constrain_credential()
+        repo = _repo_with_mandate(cred)
+        engine = PEPEngine(repository=repo, auth_pep_client=FakeAuthPEP())
+        result = engine.enforce_action(
+            credential=cred,
+            action=_action("file.write", "src/main.py"),
+            context=_context(),
+        )
+        assert result["decision"] == "PERMIT"
+        esc_checks = [c for c in result["checks"] if c["check_id"] == "CHK-ESC"]
+        assert len(esc_checks) == 1
+        assert esc_checks[0]["details"]["escalation"] is True
+
+    def test_constrain_escalated_to_deny(self):
+        class FakeAuthPEP:
+            def escalate(self, request):
+                return {"decision": "DENY"}
+
+        cred = _constrain_credential()
+        repo = _repo_with_mandate(cred)
+        engine = PEPEngine(repository=repo, auth_pep_client=FakeAuthPEP())
+        result = engine.enforce_action(
+            credential=cred,
+            action=_action("file.write", "src/main.py"),
+            context=_context(),
+        )
+        assert result["decision"] == "DENY"
+        esc_checks = [c for c in result["checks"] if c["check_id"] == "CHK-ESC"]
+        assert len(esc_checks) == 1
+        assert esc_checks[0]["result"] == "fail"
+
+    def test_auth_pep_unreachable_fail_closed(self):
+        class FailingAuthPEP:
+            def escalate(self, request):
+                raise ConnectionError("Auth PEP unreachable")
+
+        cred = _constrain_credential()
+        repo = _repo_with_mandate(cred)
+        engine = PEPEngine(repository=repo, auth_pep_client=FailingAuthPEP())
+        result = engine.enforce_action(
+            credential=cred,
+            action=_action("file.write", "src/main.py"),
+            context=_context(),
+        )
+        assert result["decision"] == "DENY"
+        esc_checks = [c for c in result["checks"] if c["check_id"] == "CHK-ESC"]
+        assert len(esc_checks) == 1
+        assert esc_checks[0]["violation_code"] == "AUTH_PEP_UNREACHABLE"
+
+    def test_no_escalation_without_auth_pep(self):
+        cred = _constrain_credential()
+        repo = _repo_with_mandate(cred)
+        engine = PEPEngine(repository=repo)
+        result = engine.enforce_action(
+            credential=cred,
+            action=_action("file.write", "src/main.py"),
+            context=_context(),
+        )
+        assert result["decision"] == "CONSTRAIN"
+        esc_checks = [c for c in result["checks"] if c["check_id"] == "CHK-ESC"]
+        assert len(esc_checks) == 0
+
+    def test_no_escalation_on_permit(self):
+        class ShouldNotBeCalled:
+            def escalate(self, request):
+                raise AssertionError("Should not be called for PERMIT")
+
+        cred = _valid_credential()
+        repo = _repo_with_mandate(cred)
+        engine = PEPEngine(repository=repo, auth_pep_client=ShouldNotBeCalled())
+        result = engine.enforce_action(
+            credential=cred,
+            action=_action("file.read", "src/main.py"),
+            context=_context(),
+        )
+        assert result["decision"] == "PERMIT"
+
+    def test_no_escalation_on_deny(self):
+        class ShouldNotBeCalled:
+            def escalate(self, request):
+                raise AssertionError("Should not be called for DENY")
+
+        cred = _valid_credential()
+        repo = _repo_with_mandate(cred)
+        engine = PEPEngine(repository=repo, auth_pep_client=ShouldNotBeCalled())
+        result = engine.enforce_action(
+            credential=cred,
+            action=_action("shell.execute", "src/main.py"),
+            context=_context(),
+        )
+        assert result["decision"] == "DENY"

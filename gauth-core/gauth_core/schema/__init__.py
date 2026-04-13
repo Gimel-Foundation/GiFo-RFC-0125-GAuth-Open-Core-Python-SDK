@@ -10,6 +10,10 @@ from gauth_core.schema.enums import (
     Phase,
     CheckSeverity,
     ManagementErrorCode,
+    Tariff,
+    TARIFF_ADAPTER_ACCESS,
+    tariff_effective_level,
+    is_open_core_active,
 )
 from gauth_core.schema.poa import (
     ToolPolicy,
@@ -49,6 +53,8 @@ from gauth_core.schema.mgmt import (
     ManagementError,
     HealthResponse,
     MandateParties,
+    PoaPermissionEntry,
+    PoaMapSummary,
 )
 from gauth_core.schema.pep import (
     EnforcementRequest,
@@ -105,6 +111,12 @@ __all__ = [
     "ManagementError",
     "HealthResponse",
     "MandateParties",
+    "PoaPermissionEntry",
+    "PoaMapSummary",
+    "Tariff",
+    "TARIFF_ADAPTER_ACCESS",
+    "tariff_effective_level",
+    "is_open_core_active",
     "EnforcementRequest",
     "EnforcementDecision",
     "EnforcementError",

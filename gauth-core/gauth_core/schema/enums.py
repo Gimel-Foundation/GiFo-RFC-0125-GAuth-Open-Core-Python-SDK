@@ -136,3 +136,24 @@ class ShellMode(str, Enum):
     ANY = "any"
     DENYLIST = "denylist"
     ALLOWLIST = "allowlist"
+
+
+class Tariff(str, Enum):
+    O = "O"
+    MO = "M+O"
+    LO = "L+O"
+
+
+TARIFF_ADAPTER_ACCESS = {
+    Tariff.O: "O",
+    Tariff.MO: "M",
+    Tariff.LO: "L",
+}
+
+
+def tariff_effective_level(tariff: Tariff) -> str:
+    return TARIFF_ADAPTER_ACCESS.get(tariff, "O")
+
+
+def is_open_core_active(tariff: Tariff) -> bool:
+    return tariff in (Tariff.MO, Tariff.LO)

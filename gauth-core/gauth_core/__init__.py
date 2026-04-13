@@ -6,4 +6,4 @@ providing PoA credential management, enforcement, and lifecycle operations.
 Licensed under Mozilla Public License 2.0.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.91.0"

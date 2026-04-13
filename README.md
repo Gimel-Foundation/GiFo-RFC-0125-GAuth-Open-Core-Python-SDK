@@ -2,6 +2,8 @@
 
 **Power of Attorney compliance monitoring for AI agents.**
 
+**Version 0.91 — Public Preview**
+
 [![License](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 
 GAuth Open Core implements the GAuth protocol suite (GiFo-RFCs 0110, 0111, 0116, 0117, 0118) for governing AI agent behavior through Power of Attorney credentials. It provides mandate lifecycle management, runtime policy enforcement, and compliance monitoring — all rule-based, deterministic, and auditable.
@@ -155,13 +157,21 @@ print(decision["decision"])  # PERMIT, DENY, or CONSTRAIN
 
 ## Documentation
 
-- [SDK Implementation Guide v1.3](docs/gauth-sdk-implementation-guide.md) — canonical reference for SDK teams
+- [SDK Implementation Guide Version 0.91](docs/gauth-sdk-implementation-guide.md) — canonical reference for SDK teams
 - [Contribution and Release Policy v1.0](docs/contribution-and-release-policy.md) — branch model, CI gates, release workflow
 - [Contributing](gauth-core/CONTRIBUTING.md) — how to contribute (community PRs and architecture team workflow)
 
-## License
+## License — Dual-Layer Coexistence
 
 This project is licensed under the [Mozilla Public License 2.0](LICENSE).
+
+| Layer | License | Scope | Revocable? |
+|-------|---------|-------|------------|
+| SDK source code | MPL 2.0 | File-level copyleft on SDK files; your own files in separate modules remain under your chosen license | No — irrevocable (subject to compliance with MPL 2.0 and Gimel Foundation Additional Terms) |
+| Proprietary Gimel services | Gimel Technologies ToS | Governs access to Gimel-hosted services (Auth-as-a-Service, Foundry, Wallet, managed infrastructure, Type C adapters) | Yes — service relationship |
+| Open specifications (RFCs) | Apache 2.0 | Interoperability protocols (RFC 0116, 0117, 0118) | No — irrevocable |
+
+You may run the SDK in pure Open Core mode (MPL 2.0 only, self-hosted, no Gimel services) indefinitely. If you choose to use proprietary Gimel services, the Gimel Technologies ToS applies in addition to MPL 2.0 — not as a replacement. Your SDK code and modifications remain MPL 2.0 regardless.
 
 **Three functional domains are excluded from the MPL 2.0 scope** and require separate proprietary licensing from the Gimel Foundation:
 

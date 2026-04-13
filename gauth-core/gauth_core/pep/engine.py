@@ -1,11 +1,11 @@
-"""PEP evaluation engine — ordered pipeline, two-pass delegation, mode selection."""
+"""PEP evaluation engine — ordered pipeline, two-pass delegation, mode selection, hybrid cascade."""
 
 from __future__ import annotations
 
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from gauth_core.adapters.registry import AdapterRegistry
 from gauth_core.pep.checks import (
@@ -23,6 +23,11 @@ from gauth_core.pep.checks import (
 from gauth_core.profiles.ceilings import get_ceiling, GovernanceProfile
 from gauth_core.schema.enums import CheckSeverity, Decision, EnforcementMode
 from gauth_core.storage.base import MandateRepository
+
+
+class AuthPEPClient(Protocol):
+    def escalate(self, request: dict[str, Any]) -> dict[str, Any]:
+        ...
 
 
 DELEGATION_REEVAL_CHECKS = [
@@ -43,9 +48,11 @@ class PEPEngine:
         self,
         repository: MandateRepository | None = None,
         adapter_registry: AdapterRegistry | None = None,
+        auth_pep_client: AuthPEPClient | None = None,
     ) -> None:
         self._repo = repository
         self._adapters = adapter_registry or AdapterRegistry(allow_untrusted=False)
+        self._auth_pep = auth_pep_client
 
     def _select_mode(self, credential: dict[str, Any], action: dict[str, Any]) -> EnforcementMode:
         profile_name = credential.get("governance_profile", "minimal")
@@ -280,6 +287,21 @@ class PEPEngine:
         else:
             decision = Decision.PERMIT
 
+        if decision == Decision.CONSTRAIN and self._auth_pep is not None:
+            decision, all_checks, constraints = self._escalate_to_auth_pep(
+                request_id=request_id,
+                credential=credential,
+                action=action,
+                context=context,
+                local_checks=all_checks,
+                local_constraints=constraints,
+                decision=decision,
+            )
+            violations = [
+                c for c in all_checks
+                if c["result"] == "fail" and c["severity"] == CheckSeverity.ERROR.value
+            ]
+
         processing_time = (time.monotonic() - start_time) * 1000
 
         compliance = {}
@@ -319,6 +341,61 @@ class PEPEngine:
 
         return result
 
+    def _escalate_to_auth_pep(
+        self,
+        request_id: str,
+        credential: dict[str, Any],
+        action: dict[str, Any],
+        context: dict[str, Any],
+        local_checks: list[dict[str, Any]],
+        local_constraints: list[dict[str, Any]],
+        decision: Decision,
+    ) -> tuple[Decision, list[dict[str, Any]], list[dict[str, Any]]]:
+        try:
+            escalation_request = {
+                "request_id": request_id,
+                "credential": credential,
+                "action": action,
+                "context": context,
+                "local_decision": decision.value,
+                "local_constraints": local_constraints,
+            }
+            auth_result = self._auth_pep.escalate(escalation_request)
+            auth_decision_str = auth_result.get("decision", "")
+            try:
+                auth_decision = Decision(auth_decision_str)
+            except ValueError:
+                auth_decision = Decision.DENY
+
+            escalation_check = {
+                "check_id": "CHK-ESC",
+                "check_name": "Auth PEP Escalation",
+                "result": "pass" if auth_decision != Decision.DENY else "fail",
+                "severity": CheckSeverity.INFO.value if auth_decision != Decision.DENY else CheckSeverity.ERROR.value,
+                "violation_code": None if auth_decision != Decision.DENY else "AUTH_PEP_DENIED",
+                "message": f"Auth PEP resolved CONSTRAIN → {auth_decision.value}",
+                "details": {"auth_pep_decision": auth_decision.value, "escalation": True},
+            }
+            local_checks.append(escalation_check)
+
+            if auth_decision == Decision.PERMIT:
+                local_constraints = []
+
+            return auth_decision, local_checks, local_constraints
+
+        except Exception as exc:
+            fallback_check = {
+                "check_id": "CHK-ESC",
+                "check_name": "Auth PEP Escalation",
+                "result": "fail",
+                "severity": CheckSeverity.ERROR.value,
+                "violation_code": "AUTH_PEP_UNREACHABLE",
+                "message": f"Auth PEP unreachable, fail-closed: {exc}",
+                "details": {"escalation": True, "fallback": "DENY"},
+            }
+            local_checks.append(fallback_check)
+            return Decision.DENY, local_checks, local_constraints
+
     def batch_enforce(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [self.enforce_action(request=req) for req in requests]
 
@@ -329,6 +406,7 @@ class PEPEngine:
             "enforcement_modes": ["stateless", "stateful"],
             "fail_mode": "closed",
             "delegation_evaluation": "two_pass",
+            "hybrid_cascade": self._auth_pep is not None,
         }
 
     def health(self) -> dict[str, Any]:

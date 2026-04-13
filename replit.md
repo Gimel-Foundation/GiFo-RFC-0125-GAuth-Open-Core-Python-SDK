@@ -33,7 +33,7 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 
 | File | Purpose |
 |------|---------|
-| `enums.ts` | pgEnum definitions, TS literal types, constants (TERMINAL_STATUSES, APPROVAL_MODE_RANK) |
+| `enums.ts` | pgEnum definitions, TS literal types, constants (TERMINAL_STATUSES, APPROVAL_MODE_RANK), Tariff codes (O, M+O, L+O), PoaMapSummary types |
 | `mandates.ts` | Drizzle pgTable definitions (mandates, audit_logs, delegations, budget_consumption) |
 | `zod-schemas.ts` | Zod v4 schemas for all API request/response types, PoA credential |
 | `ceilings.ts` | CeilingDefinition interface + CEILING_TABLE constant + validateAgainstCeiling() |
@@ -101,7 +101,11 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 
 ### 16 Checks
 
-CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance Profile Ceiling, CHK-04 Phase Match, CHK-05 Sector Allowlist, CHK-06 Region Allowlist, CHK-07 Path Evaluation, CHK-08 Verb Authorization, CHK-09 Verb Constraints, CHK-10 Platform Permissions, CHK-11 Transaction Matrix, CHK-12 Decision Type Allowlist, CHK-13 Budget Check, CHK-14 Session Limits, CHK-15 Approval Verification, CHK-16 Delegation Chain Validation
+CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance Profile Ceiling, CHK-04 Phase Match, CHK-05 Sector Allowlist, CHK-06 Region Allowlist, CHK-07 Path Evaluation, CHK-08 Verb Authorization, CHK-09 Verb Constraints, CHK-10 Platform Permissions, CHK-11 Transaction Matrix, CHK-12 Decision Type Allowlist, CHK-13 Budget Check, CHK-14 Session Limits, CHK-15 Approval Verification, CHK-16 Delegation Chain Validation, CHK-ESC Auth PEP Escalation (hybrid cascade)
+
+### Hybrid Cascade Escalation
+
+When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is configured, the PEP forwards the request to Auth PEP for a definitive decision. If Auth PEP is unreachable, the system fails-closed with DENY. Both Python (`PEPEngine(auth_pep_client=...)`) and TypeScript (`setAuthPEPClient(...)`) support this pattern.
 
 ## GAuth Open Core (Python SDK)
 
@@ -111,7 +115,7 @@ CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance 
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: MPL 2.0 (see Python SDK note below)
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 130 tests across 6 test modules
+- **Tests**: 145 tests across 6 test modules
 
 ### Submodules (9 total)
 
@@ -159,7 +163,7 @@ CHK-01 Credential Structure, CHK-02 Temporal & Agent Binding, CHK-03 Governance 
 ## SDK Implementation Guide
 
 - **Location**: `docs/gauth-sdk-implementation-guide.md`
-- **Version**: 1.1
+- **Version**: 0.91 (Public Preview)
 - **Contents**: Full SDK reference covering adapter type system (A/B/C/D), 7-slot connector model, sealed registration protocol (Ed25519 manifest), tariff gating matrix (O/S/M/L), two-tier ToS state machine, PEP integration, Management API client, S2S authentication, 88 conformance test vectors, Open Core Exclusions (§13), and GitHub Repository Structure (§14)
 - **License**: MPL 2.0 (open interfaces); Gimel ToS (Type C proprietary interfaces)
 

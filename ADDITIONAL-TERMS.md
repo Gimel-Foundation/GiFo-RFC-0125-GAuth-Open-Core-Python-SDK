@@ -6,13 +6,27 @@
 
 ---
 
-## Legal Framework
+## Legal Framework — Dual-Layer Coexistence
 
-GAuth Open Core is governed by a layered legal structure:
+GAuth Open Core is governed by a layered legal structure where multiple licenses **coexist** — they do not replace one another:
+
+| Layer | License | Scope | Revocable? |
+|-------|---------|-------|------------|
+| SDK source code | MPL 2.0 | File-level copyleft on SDK files; your own files in separate modules remain under your chosen license | No — irrevocable (subject to compliance with MPL 2.0 and Gimel Foundation Additional Terms) |
+| Proprietary Gimel services | Gimel Technologies ToS | Governs access to Gimel-hosted services (Auth-as-a-Service, Foundry, Wallet, managed infrastructure, Type C adapters) | Yes — service relationship |
+| Open specifications (RFCs) | Apache 2.0 | Interoperability protocols (RFC 0116, 0117, 0118) | No — irrevocable |
 
 - **Gimel Foundation Legal Terms** apply to all use of GAuth, whether Open Core or proprietary.
 - **Mozilla Public License 2.0 (MPL 2.0)** governs source code rights for Open Core components only.
-- **Gimel Technologies Terms of Service** apply when a user opts into proprietary services, including the Excluded Components. This constitutes a license swap from the MPL 2.0 to the Gimel Technologies ToS for those components.
+- **Gimel Technologies Terms of Service** apply when a user opts into proprietary services, including the Excluded Components. The ToS applies **in addition to** MPL 2.0 — not as a replacement. SDK code and modifications to SDK files remain MPL 2.0 regardless.
+
+### Coexistence Rule
+
+You may run the SDK in pure Open Core mode (MPL 2.0 only, self-hosted, no Gimel services) indefinitely. If you choose to use proprietary Gimel services, the Gimel Technologies ToS applies in addition to MPL 2.0. Your SDK code and modifications to SDK files remain MPL 2.0 regardless.
+
+### Downgrade Protection
+
+If a hybrid customer later drops the proprietary platform, the ToS terminates but the MPL 2.0 license is not revoked. The customer keeps all SDK code and modifications, as long as acting in line with MPL 2.0 as well as the Legal Terms of Gimel Foundation. Violation of the Gimel Foundation Additional Terms (including unauthorized implementation of the Excluded Components listed below) terminates the MPL 2.0 license.
 
 ## Scope of the MPL 2.0 License
 

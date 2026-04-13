@@ -134,3 +134,72 @@ class TestEnums:
     def test_mandate_statuses(self):
         assert len(MandateStatus) == 8
         assert MandateStatus.BUDGET_EXCEEDED.value == "BUDGET_EXCEEDED"
+
+
+class TestTariffEnum:
+    def test_tariff_values(self):
+        from gauth_core.schema.enums import Tariff
+        assert Tariff.O.value == "O"
+        assert Tariff.MO.value == "M+O"
+        assert Tariff.LO.value == "L+O"
+        assert len(Tariff) == 3
+
+    def test_tariff_effective_level(self):
+        from gauth_core.schema.enums import Tariff, tariff_effective_level
+        assert tariff_effective_level(Tariff.O) == "O"
+        assert tariff_effective_level(Tariff.MO) == "M"
+        assert tariff_effective_level(Tariff.LO) == "L"
+
+    def test_open_core_active(self):
+        from gauth_core.schema.enums import Tariff, is_open_core_active
+        assert is_open_core_active(Tariff.O) is False
+        assert is_open_core_active(Tariff.MO) is True
+        assert is_open_core_active(Tariff.LO) is True
+
+    def test_mo_treated_as_m_for_adapter_access(self):
+        from gauth_core.schema.enums import Tariff, TARIFF_ADAPTER_ACCESS
+        assert TARIFF_ADAPTER_ACCESS[Tariff.MO] == "M"
+
+    def test_lo_treated_as_l_for_adapter_access(self):
+        from gauth_core.schema.enums import Tariff, TARIFF_ADAPTER_ACCESS
+        assert TARIFF_ADAPTER_ACCESS[Tariff.LO] == "L"
+
+
+class TestPoaMapSummary:
+    def test_poa_map_summary_defaults(self):
+        from gauth_core.schema.mgmt import PoaMapSummary
+        summary = PoaMapSummary(
+            mandate_id="mdt_123",
+            subject="agent_1",
+            governance_profile="minimal",
+            status=MandateStatus.ACTIVE,
+        )
+        assert summary.permissions == []
+        assert summary.allowed_actions == []
+        assert summary.allowed_decisions == []
+
+    def test_poa_map_summary_with_permissions(self):
+        from gauth_core.schema.mgmt import PoaMapSummary, PoaPermissionEntry
+        entry = PoaPermissionEntry(action="file.read", resource="src/", effect="allow")
+        summary = PoaMapSummary(
+            mandate_id="mdt_123",
+            subject="agent_1",
+            governance_profile="standard",
+            status=MandateStatus.ACTIVE,
+            permissions=[entry],
+            allowed_actions=["file.read", "file.write"],
+            allowed_decisions=["approve", "reject"],
+        )
+        assert len(summary.permissions) == 1
+        assert summary.permissions[0].action == "file.read"
+        assert summary.permissions[0].resource == "src/"
+        assert summary.permissions[0].effect == "allow"
+        assert summary.allowed_actions == ["file.read", "file.write"]
+        assert summary.allowed_decisions == ["approve", "reject"]
+
+    def test_poa_permission_entry_optional_resource(self):
+        from gauth_core.schema.mgmt import PoaPermissionEntry
+        entry = PoaPermissionEntry(action="deploy", effect="deny")
+        assert entry.resource is None
+        assert entry.action == "deploy"
+        assert entry.effect == "deny"

@@ -292,6 +292,22 @@ class ManagementError(BaseModel):
     retry_after_seconds: int | None = None
 
 
+class PoaPermissionEntry(BaseModel):
+    action: str
+    resource: str | None = None
+    effect: str
+
+
+class PoaMapSummary(BaseModel):
+    mandate_id: str
+    subject: str
+    governance_profile: str
+    status: MandateStatus
+    permissions: list[PoaPermissionEntry] = Field(default_factory=list)
+    allowed_actions: list[str] = Field(default_factory=list)
+    allowed_decisions: list[str] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     mgmt_version: str = "1.1.0"

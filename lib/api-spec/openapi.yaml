@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 1.1.0
-  description: GAuth Management API — RFC 0118 §11.1 mandate lifecycle management
+  version: 0.91.0
+  description: GAuth Management API — RFC 0118 §11.1 mandate lifecycle management (Public Preview)
 servers:
   - url: /api
     description: Base API path

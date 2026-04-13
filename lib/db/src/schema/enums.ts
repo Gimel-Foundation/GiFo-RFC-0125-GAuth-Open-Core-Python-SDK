@@ -79,3 +79,36 @@ export type CheckSeverity = (typeof checkSeverityValues)[number];
 
 export const shellModeValues = ["any", "denylist", "allowlist"] as const;
 export type ShellMode = (typeof shellModeValues)[number];
+
+export const tariffValues = ["O", "M+O", "L+O"] as const;
+export type Tariff = (typeof tariffValues)[number];
+
+export const TARIFF_ADAPTER_ACCESS: Record<Tariff, string> = {
+  O: "O",
+  "M+O": "M",
+  "L+O": "L",
+};
+
+export function tariffEffectiveLevel(tariff: Tariff): string {
+  return TARIFF_ADAPTER_ACCESS[tariff] ?? "O";
+}
+
+export function isOpenCoreActive(tariff: Tariff): boolean {
+  return tariff === "M+O" || tariff === "L+O";
+}
+
+export interface PoaPermissionEntry {
+  action: string;
+  resource?: string;
+  effect: string;
+}
+
+export interface PoaMapSummary {
+  mandate_id: string;
+  subject: string;
+  governance_profile: GovernanceProfile;
+  status: MandateStatus;
+  permissions: PoaPermissionEntry[];
+  allowed_actions: string[];
+  allowed_decisions: string[];
+}
