@@ -173,6 +173,8 @@ This project is licensed under the [Mozilla Public License 2.0](LICENSE).
 
 You may run the SDK in pure Open Core mode (MPL 2.0 only, self-hosted, no Gimel services) indefinitely. If you choose to use proprietary Gimel services, the Gimel Technologies ToS applies in addition to MPL 2.0 — not as a replacement. Your SDK code and modifications remain MPL 2.0 regardless.
 
+**Downgrade protection:** Your MPL 2.0 license rights are irrevocable as long as you are acting in line with MPL 2.0 as well as the Legal Terms of Gimel Foundation. Violation of the Gimel Foundation Additional Terms may result in termination of access to proprietary services, but does not retroactively affect MPL 2.0 rights to previously-released SDK source code.
+
 **Three functional domains are excluded from the MPL 2.0 scope** and require separate proprietary licensing from the Gimel Foundation:
 
 1. **AI-Enabled Governance** — AI/ML-based policy generation, risk scoring, or compliance assessment beyond the deterministic PEP engine
