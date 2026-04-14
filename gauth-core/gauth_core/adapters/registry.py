@@ -111,17 +111,16 @@ def _validate_license_token(token: str, api_secret: str | None = None) -> tuple[
     if len(sig) < 16:
         return False, "license_token signature is too short"
     secret = api_secret or os.environ.get("GAUTH_API_SECRET", "")
-    if secret:
-        expected_sig = hmac.new(
-            secret.encode(), body.encode(), hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(sig, expected_sig):
-            return False, "license_token HMAC signature verification failed"
-    else:
-        logger.warning(
-            "GAUTH_API_SECRET not set — license_token HMAC cannot be verified. "
-            "Set GAUTH_API_SECRET for production use."
+    if not secret:
+        return False, (
+            "GAUTH_API_SECRET is not set — license_token HMAC cannot be verified. "
+            "Set GAUTH_API_SECRET to enable license validation."
         )
+    expected_sig = hmac.new(
+        secret.encode(), body.encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig, expected_sig):
+        return False, "license_token HMAC signature verification failed"
     return True, ""
 
 
@@ -239,17 +238,6 @@ def _verify_ed25519_manifest(
         raise ManifestVerificationError(
             f"Ed25519 signature verification failed: {exc}", step="signature_verification"
         )
-
-    expected_checksum = manifest.get("checksum", "")
-    if expected_checksum:
-        adapter_module = type(adapter).__module__ or ""
-        adapter_qualname = type(adapter).__qualname__
-        adapter_id = f"{adapter_module}.{adapter_qualname}"
-        actual_checksum = hashlib.sha256(adapter_id.encode()).hexdigest()
-        if actual_checksum != expected_checksum:
-            raise ManifestVerificationError(
-                "Adapter checksum does not match manifest", step="checksum_verification"
-            )
 
 
 class AdapterRegistry:

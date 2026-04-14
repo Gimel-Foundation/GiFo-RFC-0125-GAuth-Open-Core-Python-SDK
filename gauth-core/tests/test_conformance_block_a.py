@@ -380,6 +380,17 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.O, license_token="a" * 100)
         assert registry._license_token is None
 
+    def test_license_token_fail_closed_without_secret(self):
+        old_secret = os.environ.get("GAUTH_API_SECRET")
+        os.environ.pop("GAUTH_API_SECRET", None)
+        try:
+            token = _make_license_token()
+            registry = AdapterRegistry(tariff=Tariff.O, license_token=token)
+            assert registry._license_token is None
+        finally:
+            if old_secret is not None:
+                os.environ["GAUTH_API_SECRET"] = old_secret
+
 
 class TestLicenseComplianceConformance:
     """CT-LIC-010/011 — PEP init detection + compliance violation logging."""
