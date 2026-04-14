@@ -83,8 +83,34 @@ def _is_noop(adapter: Any) -> bool:
     return type(adapter).__qualname__ in NOOP_CLASSES
 
 
+_LICENSE_TOKEN_PREFIX = "gimel_lic_"
+_LICENSE_TOKEN_MIN_LENGTH = 32
+
+
 def _is_dev_mode() -> bool:
     return os.environ.get("GAUTH_DEV_MODE", "").lower() == "true"
+
+
+def _validate_license_token_format(token: str) -> tuple[bool, str]:
+    if not isinstance(token, str):
+        return False, "license_token must be a string"
+    token = token.strip()
+    if len(token) < _LICENSE_TOKEN_MIN_LENGTH:
+        return False, f"license_token must be at least {_LICENSE_TOKEN_MIN_LENGTH} characters"
+    if not token.startswith(_LICENSE_TOKEN_PREFIX):
+        return False, f"license_token must start with '{_LICENSE_TOKEN_PREFIX}'"
+    payload = token[len(_LICENSE_TOKEN_PREFIX):]
+    if not payload:
+        return False, "license_token payload is empty"
+    parts = payload.rsplit(".", 1)
+    if len(parts) != 2:
+        return False, "license_token must contain a payload and HMAC signature separated by '.'"
+    body, sig = parts
+    if len(body) < 8:
+        return False, "license_token body is too short"
+    if len(sig) < 16:
+        return False, "license_token signature is too short"
+    return True, ""
 
 
 def _verify_ed25519_manifest(
@@ -209,10 +235,9 @@ class AdapterRegistry:
     def _validate_license_token(token: str | None) -> str | None:
         if token is None:
             return None
-        if not isinstance(token, str) or len(token.strip()) < 16:
-            logger.warning(
-                "license_token rejected: must be a non-empty string of at least 16 characters"
-            )
+        valid, reason = _validate_license_token_format(token)
+        if not valid:
+            logger.warning("license_token rejected: %s", reason)
             return None
         return token.strip()
 
@@ -252,6 +277,16 @@ class AdapterRegistry:
         manifest: dict[str, Any] | None = None,
         force: bool = False,
     ) -> None:
+        """Register an adapter into its canonical slot with tariff gate enforcement.
+
+        Tariff is an immutable registry-level invariant (set at construction via
+        ``AdapterRegistry(tariff=...)``). It is NOT accepted per-call to prevent
+        callers from forging a higher tariff to bypass licensing controls.
+
+        Slot assignment is derived authoritatively from ``adapter_type`` via
+        ``SLOT_TO_ADAPTER_TYPE``; no caller-supplied ``slot_name`` override is
+        accepted, preventing policy bypass through slot forgery.
+        """
         if adapter_type is None:
             adapter_type = getattr(adapter, "ADAPTER_TYPE", None)
             if adapter_type is None:

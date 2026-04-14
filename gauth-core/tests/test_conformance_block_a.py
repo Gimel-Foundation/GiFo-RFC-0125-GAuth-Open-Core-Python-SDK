@@ -88,7 +88,10 @@ class TestRegistrationEnforcementConformance:
         assert exc_info.value.error_code == "LICENSE_REQUIRED"
 
     def test_ct_reg_020_force_with_license_succeeds(self):
-        registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_valid_token_1234567890")
+        registry = AdapterRegistry(
+            tariff=Tariff.O,
+            license_token="gimel_lic_abcdefghij.1234567890abcdef",
+        )
         adapter = NoOpAIEnrichmentAdapter()
         registry.register(adapter, force=True)
         assert registry.ai_enrichment is adapter
@@ -251,9 +254,26 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.O, license_token="               ")
         assert registry._license_token is None
 
+    def test_license_token_wrong_prefix_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="wrong_prefix_abcdefghij.1234567890abcdef")
+        assert registry._license_token is None
+
+    def test_license_token_no_signature_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_lic_abcdefghijklmnopqrstuvwxyz")
+        assert registry._license_token is None
+
+    def test_license_token_short_signature_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_lic_abcdefghij.short")
+        assert registry._license_token is None
+
     def test_license_token_valid_accepted(self):
-        registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_valid_token_1234567890")
-        assert registry._license_token == "gimel_valid_token_1234567890"
+        token = "gimel_lic_abcdefghij.1234567890abcdef"
+        registry = AdapterRegistry(tariff=Tariff.O, license_token=token)
+        assert registry._license_token == token
+
+    def test_license_token_arbitrary_long_string_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="a" * 100)
+        assert registry._license_token is None
 
 
 class TestLicenseComplianceConformance:
