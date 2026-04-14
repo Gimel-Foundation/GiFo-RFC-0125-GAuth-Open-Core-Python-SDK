@@ -104,6 +104,11 @@ class ManagementErrorCode(str, Enum):
     DUPLICATE_CONSUMPTION_REPORT = "DUPLICATE_CONSUMPTION_REPORT"
     RATE_LIMITED = "RATE_LIMITED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    TARIFF_GATE_DENIED = "TARIFF_GATE_DENIED"
+    LICENSE_REQUIRED = "LICENSE_REQUIRED"
+    ATTESTATION_REQUIRED = "ATTESTATION_REQUIRED"
+    MANDATORY_SLOT_EMPTY = "MANDATORY_SLOT_EMPTY"
+    LICENSE_COMPLIANCE_VIOLATION = "LICENSE_COMPLIANCE_VIOLATION"
 
 
 ERROR_CODE_HTTP_STATUS: dict[ManagementErrorCode, int] = {
@@ -129,6 +134,11 @@ ERROR_CODE_HTTP_STATUS: dict[ManagementErrorCode, int] = {
     ManagementErrorCode.DUPLICATE_CONSUMPTION_REPORT: 409,
     ManagementErrorCode.RATE_LIMITED: 429,
     ManagementErrorCode.INTERNAL_ERROR: 500,
+    ManagementErrorCode.TARIFF_GATE_DENIED: 403,
+    ManagementErrorCode.LICENSE_REQUIRED: 403,
+    ManagementErrorCode.ATTESTATION_REQUIRED: 403,
+    ManagementErrorCode.MANDATORY_SLOT_EMPTY: 422,
+    ManagementErrorCode.LICENSE_COMPLIANCE_VIOLATION: 403,
 }
 
 
@@ -140,12 +150,18 @@ class ShellMode(str, Enum):
 
 class Tariff(str, Enum):
     O = "O"
+    S = "S"
+    M = "M"
+    L = "L"
     MO = "M+O"
     LO = "L+O"
 
 
 TARIFF_ADAPTER_ACCESS = {
     Tariff.O: "O",
+    Tariff.S: "S",
+    Tariff.M: "M",
+    Tariff.L: "L",
     Tariff.MO: "M",
     Tariff.LO: "L",
 }
@@ -159,14 +175,28 @@ def is_open_core_active(tariff: Tariff) -> bool:
     return tariff in (Tariff.MO, Tariff.LO)
 
 
+SLOT_TYPE_CLASSIFICATION: dict[str, str] = {
+    "pdp": "A",
+    "oauth_engine": "A",
+    "foundry": "B",
+    "wallet": "B",
+    "ai_governance": "C",
+    "web3_identity": "C",
+    "dna_identity": "C",
+}
+
+TYPE_C_SLOTS = frozenset(
+    slot for slot, cls in SLOT_TYPE_CLASSIFICATION.items() if cls == "C"
+)
+
 DEPLOYMENT_POLICY_MATRIX: dict[str, dict[str, str]] = {
-    "pdp":            {"O": "active_always", "M": "active_always", "L": "active_always"},
-    "oauth_engine":   {"O": "user_provided_required", "M": "gimel_or_user", "L": "gimel_or_user"},
-    "foundry":        {"O": "null_or_user", "M": "gimel_or_user", "L": "gimel_or_user"},
-    "wallet":         {"O": "null_or_user", "M": "gimel_or_user", "L": "gimel_or_user"},
-    "ai_governance":  {"O": "null", "M": "attested_gimel", "L": "attested_gimel"},
-    "web3_identity":  {"O": "null", "M": "null_or_attested_gimel", "L": "attested_gimel"},
-    "dna_identity":   {"O": "null", "M": "null", "L": "attested_gimel"},
+    "pdp":            {"O": "active_always", "S": "active_always", "M": "active_always", "L": "active_always"},
+    "oauth_engine":   {"O": "user_provided_required", "S": "gimel_or_user", "M": "gimel_or_user", "L": "gimel_or_user"},
+    "foundry":        {"O": "null_or_user", "S": "gimel_or_user", "M": "gimel_or_user", "L": "gimel_or_user"},
+    "wallet":         {"O": "null_or_user", "S": "gimel_or_user", "M": "gimel_or_user", "L": "gimel_or_user"},
+    "ai_governance":  {"O": "null", "S": "null", "M": "attested_gimel", "L": "attested_gimel"},
+    "web3_identity":  {"O": "null", "S": "null", "M": "null_or_attested_gimel", "L": "attested_gimel"},
+    "dna_identity":   {"O": "null", "S": "null", "M": "null", "L": "attested_gimel"},
 }
 
 
@@ -186,5 +216,8 @@ def check_tariff_gate(slot_name: str, tariff: Tariff) -> TariffGateResult:
         return TariffGateResult(False, "null", f"Unknown slot: {slot_name}")
     availability = matrix.get(effective, "null")
     if availability == "null":
-        return TariffGateResult(False, "null", "Slot not available for tariff")
+        return TariffGateResult(
+            False, "null",
+            f"Slot '{slot_name}' not available for tariff {tariff.value} (effective level {effective})",
+        )
     return TariffGateResult(True, availability)

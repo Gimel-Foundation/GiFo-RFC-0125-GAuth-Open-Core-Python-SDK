@@ -33,7 +33,7 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 
 | File | Purpose |
 |------|---------|
-| `enums.ts` | pgEnum definitions, TS literal types, constants (TERMINAL_STATUSES, APPROVAL_MODE_RANK), Tariff codes (O, M+O, L+O), PoaMapSummary types |
+| `enums.ts` | pgEnum definitions, TS literal types, constants (TERMINAL_STATUSES, APPROVAL_MODE_RANK), Tariff codes (O, S, M, L, M+O, L+O), DEPLOYMENT_POLICY_MATRIX with S column, SLOT_TYPE_CLASSIFICATION (A/B/C), TYPE_C_SLOTS, checkTariffGate(), PoaMapSummary types |
 | `mandates.ts` | Drizzle pgTable definitions (mandates, audit_logs, delegations, budget_consumption) |
 | `zod-schemas.ts` | Zod v4 schemas for all API request/response types, PoA credential |
 | `ceilings.ts` | CeilingDefinition interface + CEILING_TABLE constant + validateAgainstCeiling() |
@@ -115,7 +115,7 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: MPL 2.0 (see Python SDK note below)
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 145 tests across 6 test modules
+- **Tests**: 196 tests across 7 test modules
 
 ### Submodules (9 total)
 
@@ -126,7 +126,7 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 | `utils/` | SHA-256 canonical JSON checksums |
 | `validation/` | 3-stage pipeline (schema, ceiling, consistency C-1..C-6) |
 | `storage/` | Abstract repository + InMemory + SQLAlchemy implementations |
-| `adapters/` | Protected adapter system (4 slots, trust validation) |
+| `adapters/` | Protected adapter system (4 slots, tariff gate, Type C Ed25519 manifest verification, trust validation) |
 | `mgmt/` | Mandate lifecycle service (RFC 0118) |
 | `pep/` | 16-check enforcement engine, two-pass delegation (RFC 0117) |
 | `http/` | Optional FastAPI binding (17 mgmt + 4 PEP endpoints) |
@@ -136,7 +136,9 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Governance profiles**: minimal, standard, strict, enterprise, behoerde
 - **PEP decisions**: PERMIT, DENY, CONSTRAIN
 - **Enforcement modes**: stateless (JWT-only), stateful (live mandate lookup)
-- **Adapter trust**: namespace verification (`gauth_adapters_gimel.*`), HMAC signature, or `allow_untrusted=True` for dev
+- **Tariff model**: 6 tariff codes (O, S, M, L, M+O, L+O); S/M/L standalone, M+O/L+O hybrid; tariff gate enforced at register()
+- **Adapter trust**: namespace verification (`gauth_adapters_gimel.*`), HMAC signature, or `allow_untrusted=True` (GAUTH_DEV_MODE=true only)
+- **Type C slots**: ai_governance, web3_identity, dna_identity — require Ed25519 signed manifest (fail-closed)
 - **Budget**: additive-only increases; consumption tracked with idempotency keys
 - **Delegation**: scope narrowing, budget carving, depth limits per profile
 

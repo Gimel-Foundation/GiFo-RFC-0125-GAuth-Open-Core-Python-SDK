@@ -1,5 +1,6 @@
 """Tests for the adapter system — registration and trust validation."""
 
+import os
 import pytest
 
 from gauth_core.adapters.base import AIEnrichmentAdapter
@@ -10,6 +11,7 @@ from gauth_core.adapters.defaults import (
     NoOpRiskScoringAdapter,
 )
 from gauth_core.adapters.registry import AdapterRegistry, AdapterRegistrationError
+from gauth_core.schema.enums import Tariff
 
 
 class TestDefaultAdapters:
@@ -51,7 +53,7 @@ class TestAdapterRegistry:
         assert isinstance(registry.ai_enrichment, NoOpAIEnrichmentAdapter)
 
     def test_register_untrusted_blocked(self):
-        registry = AdapterRegistry(allow_untrusted=False)
+        registry = AdapterRegistry(allow_untrusted=False, tariff=Tariff.M)
 
         class UntrustedAdapter(AIEnrichmentAdapter):
             ADAPTER_TYPE = "ai_enrichment"
@@ -64,36 +66,60 @@ class TestAdapterRegistry:
             registry.register(UntrustedAdapter())
 
     def test_register_untrusted_allowed(self):
-        registry = AdapterRegistry(allow_untrusted=True)
+        old_val = os.environ.get("GAUTH_DEV_MODE")
+        os.environ["GAUTH_DEV_MODE"] = "true"
+        try:
+            registry = AdapterRegistry(allow_untrusted=True, tariff=Tariff.M)
 
-        class TestAdapter(AIEnrichmentAdapter):
-            ADAPTER_TYPE = "ai_enrichment"
-            def enrich(self, req, mandate):
-                return {"source": "test"}
-            def health_check(self):
-                return True
+            class TestAdapter(AIEnrichmentAdapter):
+                ADAPTER_TYPE = "ai_enrichment"
+                def enrich(self, req, mandate):
+                    return {"source": "test"}
+                def health_check(self):
+                    return True
 
-        registry.register(TestAdapter())
-        result = registry.ai_enrichment.enrich({}, {})
-        assert result["source"] == "test"
+            registry.register(TestAdapter(), slot_name="pdp")
+            result = registry.ai_enrichment.enrich({}, {})
+            assert result["source"] == "test"
+        finally:
+            if old_val is not None:
+                os.environ["GAUTH_DEV_MODE"] = old_val
+            else:
+                os.environ.pop("GAUTH_DEV_MODE", None)
 
     def test_register_wrong_type(self):
-        registry = AdapterRegistry(allow_untrusted=True)
+        old_val = os.environ.get("GAUTH_DEV_MODE")
+        os.environ["GAUTH_DEV_MODE"] = "true"
+        try:
+            registry = AdapterRegistry(allow_untrusted=True, tariff=Tariff.M)
 
-        class WrongType(AIEnrichmentAdapter):
-            ADAPTER_TYPE = "ai_enrichment"
-            def enrich(self, req, mandate):
-                return {}
-            def health_check(self):
-                return True
+            class WrongType(AIEnrichmentAdapter):
+                ADAPTER_TYPE = "ai_enrichment"
+                def enrich(self, req, mandate):
+                    return {}
+                def health_check(self):
+                    return True
 
-        with pytest.raises(AdapterRegistrationError):
-            registry.register(WrongType(), adapter_type="risk_scoring")
+            with pytest.raises(AdapterRegistrationError):
+                registry.register(WrongType(), adapter_type="risk_scoring")
+        finally:
+            if old_val is not None:
+                os.environ["GAUTH_DEV_MODE"] = old_val
+            else:
+                os.environ.pop("GAUTH_DEV_MODE", None)
 
     def test_register_unknown_type(self):
-        registry = AdapterRegistry(allow_untrusted=True)
-        with pytest.raises(AdapterRegistrationError):
-            registry.register(NoOpAIEnrichmentAdapter(), adapter_type="nonexistent")
+        old_val = os.environ.get("GAUTH_DEV_MODE")
+        os.environ["GAUTH_DEV_MODE"] = "true"
+        try:
+            registry = AdapterRegistry(allow_untrusted=True, tariff=Tariff.M)
+            with pytest.raises(AdapterRegistrationError):
+                registry.register(NoOpAIEnrichmentAdapter(), adapter_type="nonexistent")
+        finally:
+            if old_val is not None:
+                os.environ["GAUTH_DEV_MODE"] = old_val
+            else:
+                os.environ.pop("GAUTH_DEV_MODE", None)
 
     def test_get_adapter(self):
         registry = AdapterRegistry()

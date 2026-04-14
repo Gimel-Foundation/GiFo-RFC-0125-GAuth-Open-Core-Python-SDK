@@ -140,19 +140,28 @@ class TestTariffEnum:
     def test_tariff_values(self):
         from gauth_core.schema.enums import Tariff
         assert Tariff.O.value == "O"
+        assert Tariff.S.value == "S"
+        assert Tariff.M.value == "M"
+        assert Tariff.L.value == "L"
         assert Tariff.MO.value == "M+O"
         assert Tariff.LO.value == "L+O"
-        assert len(Tariff) == 3
+        assert len(Tariff) == 6
 
     def test_tariff_effective_level(self):
         from gauth_core.schema.enums import Tariff, tariff_effective_level
         assert tariff_effective_level(Tariff.O) == "O"
+        assert tariff_effective_level(Tariff.S) == "S"
+        assert tariff_effective_level(Tariff.M) == "M"
+        assert tariff_effective_level(Tariff.L) == "L"
         assert tariff_effective_level(Tariff.MO) == "M"
         assert tariff_effective_level(Tariff.LO) == "L"
 
     def test_open_core_active(self):
         from gauth_core.schema.enums import Tariff, is_open_core_active
         assert is_open_core_active(Tariff.O) is False
+        assert is_open_core_active(Tariff.S) is False
+        assert is_open_core_active(Tariff.M) is False
+        assert is_open_core_active(Tariff.L) is False
         assert is_open_core_active(Tariff.MO) is True
         assert is_open_core_active(Tariff.LO) is True
 
@@ -163,6 +172,12 @@ class TestTariffEnum:
     def test_lo_treated_as_l_for_adapter_access(self):
         from gauth_core.schema.enums import Tariff, TARIFF_ADAPTER_ACCESS
         assert TARIFF_ADAPTER_ACCESS[Tariff.LO] == "L"
+
+    def test_standalone_tariff_access(self):
+        from gauth_core.schema.enums import Tariff, TARIFF_ADAPTER_ACCESS
+        assert TARIFF_ADAPTER_ACCESS[Tariff.S] == "S"
+        assert TARIFF_ADAPTER_ACCESS[Tariff.M] == "M"
+        assert TARIFF_ADAPTER_ACCESS[Tariff.L] == "L"
 
 
 class TestPoaMapSummary:
@@ -323,3 +338,55 @@ class TestTariffGating:
         from gauth_core.schema.enums import Tariff, check_tariff_gate
         result = check_tariff_gate("nonexistent", Tariff.MO)
         assert result.allowed is False
+
+    def test_s_ai_governance_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("ai_governance", Tariff.S)
+        assert result.allowed is False
+        assert result.availability == "null"
+
+    def test_s_oauth_engine_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("oauth_engine", Tariff.S)
+        assert result.allowed is True
+        assert result.availability == "gimel_or_user"
+
+    def test_s_pdp_always_active(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("pdp", Tariff.S)
+        assert result.allowed is True
+        assert result.availability == "active_always"
+
+    def test_s_web3_identity_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("web3_identity", Tariff.S)
+        assert result.allowed is False
+
+    def test_s_dna_identity_blocked(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("dna_identity", Tariff.S)
+        assert result.allowed is False
+
+    def test_s_wallet_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("wallet", Tariff.S)
+        assert result.allowed is True
+        assert result.availability == "gimel_or_user"
+
+    def test_m_standalone_ai_governance_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("ai_governance", Tariff.M)
+        assert result.allowed is True
+        assert result.availability == "attested_gimel"
+
+    def test_l_standalone_dna_identity_allowed(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("dna_identity", Tariff.L)
+        assert result.allowed is True
+        assert result.availability == "attested_gimel"
+
+    def test_gate_reason_included(self):
+        from gauth_core.schema.enums import Tariff, check_tariff_gate
+        result = check_tariff_gate("ai_governance", Tariff.O)
+        assert result.reason != ""
+        assert "not available" in result.reason

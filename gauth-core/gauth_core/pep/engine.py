@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Protocol
+
+logger = logging.getLogger(__name__)
 
 from gauth_core.adapters.registry import AdapterRegistry
 from gauth_core.pep.checks import (
@@ -53,6 +56,25 @@ class PEPEngine:
         self._repo = repository
         self._adapters = adapter_registry or AdapterRegistry(allow_untrusted=False)
         self._auth_pep = auth_pep_client
+        self._compliance_violations: list[dict[str, Any]] = []
+        self._validate_adapter_compliance()
+
+    def _validate_adapter_compliance(self) -> None:
+        self._compliance_violations = self._adapters.validate_tariff_compliance()
+        if self._compliance_violations:
+            for v in self._compliance_violations:
+                logger.warning(
+                    "PEPEngine init: LICENSE_COMPLIANCE_VIOLATION — "
+                    "adapter '%s' in slot '%s' not permitted on tariff %s",
+                    v.get("adapter_class"), v.get("slot"), v.get("tariff"),
+                )
+
+    @property
+    def compliance_violations(self) -> list[dict[str, Any]]:
+        return list(self._compliance_violations)
+
+    def _is_adapter_compliant(self, adapter_type: str) -> bool:
+        return self._adapters.is_adapter_compliant(adapter_type)
 
     def _select_mode(self, credential: dict[str, Any], action: dict[str, Any]) -> EnforcementMode:
         profile_name = credential.get("governance_profile", "minimal")
@@ -193,13 +215,14 @@ class PEPEngine:
             }
 
         enrichment = {}
-        try:
-            enrichment = self._adapters.ai_enrichment.enrich(
-                {"request_id": request_id, "credential": credential, "action": action, "context": context},
-                live_mandate or credential,
-            )
-        except Exception:
-            pass
+        if self._is_adapter_compliant("ai_enrichment"):
+            try:
+                enrichment = self._adapters.ai_enrichment.enrich(
+                    {"request_id": request_id, "credential": credential, "action": action, "context": context},
+                    live_mandate or credential,
+                )
+            except Exception:
+                pass
 
         all_checks: list[dict[str, Any]] = []
         for check_id, check_fn in CHECKS_REGISTRY:
@@ -305,7 +328,7 @@ class PEPEngine:
         processing_time = (time.monotonic() - start_time) * 1000
 
         compliance = {}
-        if decision != Decision.DENY:
+        if decision != Decision.DENY and self._is_adapter_compliant("compliance_enrichment"):
             try:
                 decision_dict = {"decision": decision.value, "request_id": request_id}
                 request_dict = {"credential": credential, "action": action, "context": context}

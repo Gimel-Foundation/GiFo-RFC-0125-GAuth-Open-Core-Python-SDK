@@ -356,6 +356,12 @@ export type PaginatedResponse = z.infer<typeof paginatedResponseSchema>;
 
 export const tariffSchema = z.enum(tariffValues);
 
+export const tariffGateResultSchema = z.object({
+  allowed: z.boolean(),
+  availability: z.string(),
+  reason: z.string().optional(),
+});
+
 export const poaPermissionEntrySchema = z.object({
   action: z.string(),
   resource: z.string().optional(),

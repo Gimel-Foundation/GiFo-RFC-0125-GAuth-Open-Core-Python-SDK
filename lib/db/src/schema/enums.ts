@@ -80,11 +80,14 @@ export type CheckSeverity = (typeof checkSeverityValues)[number];
 export const shellModeValues = ["any", "denylist", "allowlist"] as const;
 export type ShellMode = (typeof shellModeValues)[number];
 
-export const tariffValues = ["O", "M+O", "L+O"] as const;
+export const tariffValues = ["O", "S", "M", "L", "M+O", "L+O"] as const;
 export type Tariff = (typeof tariffValues)[number];
 
 export const TARIFF_ADAPTER_ACCESS: Record<Tariff, string> = {
   O: "O",
+  S: "S",
+  M: "M",
+  L: "L",
   "M+O": "M",
   "L+O": "L",
 };
@@ -96,6 +99,22 @@ export function tariffEffectiveLevel(tariff: Tariff): string {
 export function isOpenCoreActive(tariff: Tariff): boolean {
   return tariff === "M+O" || tariff === "L+O";
 }
+
+export const SLOT_TYPE_CLASSIFICATION: Record<string, string> = {
+  pdp: "A",
+  oauth_engine: "A",
+  foundry: "B",
+  wallet: "B",
+  ai_governance: "C",
+  web3_identity: "C",
+  dna_identity: "C",
+};
+
+export const TYPE_C_SLOTS = new Set(
+  Object.entries(SLOT_TYPE_CLASSIFICATION)
+    .filter(([, cls]) => cls === "C")
+    .map(([slot]) => slot),
+);
 
 export interface PoaPermissionEntry {
   action: string;
@@ -116,13 +135,13 @@ export interface PoaMapSummary {
 }
 
 export const DEPLOYMENT_POLICY_MATRIX: Record<string, Record<string, string>> = {
-  pdp:            { O: "active_always", M: "active_always", L: "active_always" },
-  oauth_engine:   { O: "user_provided_required", M: "gimel_or_user", L: "gimel_or_user" },
-  foundry:        { O: "null_or_user", M: "gimel_or_user", L: "gimel_or_user" },
-  wallet:         { O: "null_or_user", M: "gimel_or_user", L: "gimel_or_user" },
-  ai_governance:  { O: "null", M: "attested_gimel", L: "attested_gimel" },
-  web3_identity:  { O: "null", M: "null_or_attested_gimel", L: "attested_gimel" },
-  dna_identity:   { O: "null", M: "null", L: "attested_gimel" },
+  pdp:            { O: "active_always", S: "active_always", M: "active_always", L: "active_always" },
+  oauth_engine:   { O: "user_provided_required", S: "gimel_or_user", M: "gimel_or_user", L: "gimel_or_user" },
+  foundry:        { O: "null_or_user", S: "gimel_or_user", M: "gimel_or_user", L: "gimel_or_user" },
+  wallet:         { O: "null_or_user", S: "gimel_or_user", M: "gimel_or_user", L: "gimel_or_user" },
+  ai_governance:  { O: "null", S: "null", M: "attested_gimel", L: "attested_gimel" },
+  web3_identity:  { O: "null", S: "null", M: "null_or_attested_gimel", L: "attested_gimel" },
+  dna_identity:   { O: "null", S: "null", M: "null", L: "attested_gimel" },
 };
 
 export interface TariffGateResult {
@@ -139,7 +158,11 @@ export function checkTariffGate(slotName: string, tariff: Tariff): TariffGateRes
   }
   const availability = matrix[effective] ?? "null";
   if (availability === "null") {
-    return { allowed: false, availability: "null", reason: "Slot not available for tariff" };
+    return {
+      allowed: false,
+      availability: "null",
+      reason: `Slot '${slotName}' not available for tariff ${tariff} (effective level ${effective})`,
+    };
   }
   return { allowed: true, availability };
 }
