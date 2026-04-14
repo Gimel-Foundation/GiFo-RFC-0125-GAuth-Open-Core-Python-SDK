@@ -6,10 +6,17 @@ Test IDs follow the Gap Specification v1.2.0 §4.2 naming:
   CT-LIC-*   License & Attestation
 """
 
+import hashlib
+import hmac as hmac_mod
 import os
 import time
 
 import pytest
+
+
+def _make_license_token(body: str = "test_license_body", secret: str = "test_secret") -> str:
+    sig = hmac_mod.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+    return f"gimel_lic_{body}.{sig}"
 
 from gauth_core.adapters.base import AIEnrichmentAdapter
 from gauth_core.adapters.defaults import (
@@ -88,13 +95,36 @@ class TestRegistrationEnforcementConformance:
         assert exc_info.value.error_code == "LICENSE_REQUIRED"
 
     def test_ct_reg_020_force_with_license_succeeds(self):
-        registry = AdapterRegistry(
-            tariff=Tariff.O,
-            license_token="gimel_lic_abcdefghij.1234567890abcdef",
-        )
-        adapter = NoOpAIEnrichmentAdapter()
-        registry.register(adapter, force=True)
-        assert registry.ai_enrichment is adapter
+        old_secret = os.environ.get("GAUTH_API_SECRET")
+        os.environ["GAUTH_API_SECRET"] = "test_secret"
+        try:
+            token = _make_license_token()
+            registry = AdapterRegistry(tariff=Tariff.O, license_token=token)
+            adapter = NoOpAIEnrichmentAdapter()
+            registry.register(adapter, force=True)
+            assert registry.ai_enrichment is adapter
+        finally:
+            if old_secret is not None:
+                os.environ["GAUTH_API_SECRET"] = old_secret
+            else:
+                os.environ.pop("GAUTH_API_SECRET", None)
+
+    def test_ct_reg_020_force_with_forged_token_rejected(self):
+        old_secret = os.environ.get("GAUTH_API_SECRET")
+        os.environ["GAUTH_API_SECRET"] = "real_production_secret"
+        try:
+            forged_token = _make_license_token(secret="wrong_secret")
+            registry = AdapterRegistry(tariff=Tariff.O, license_token=forged_token)
+            assert registry._license_token is None
+            adapter = NoOpAIEnrichmentAdapter()
+            with pytest.raises(AdapterRegistrationError) as exc_info:
+                registry.register(adapter, force=True)
+            assert exc_info.value.error_code == "LICENSE_REQUIRED"
+        finally:
+            if old_secret is not None:
+                os.environ["GAUTH_API_SECRET"] = old_secret
+            else:
+                os.environ.pop("GAUTH_API_SECRET", None)
 
     def test_ct_reg_021_allow_untrusted_without_dev_mode_ignored(self):
         old_val = os.environ.get("GAUTH_DEV_MODE")
@@ -131,6 +161,60 @@ class TestRegistrationEnforcementConformance:
         with pytest.raises(AdapterRegistrationError) as exc_info:
             registry.register(adapter, manifest={})
         assert exc_info.value.error_code == "ATTESTATION_REQUIRED"
+
+    def test_ct_reg_022_type_c_manifest_adapter_type_mismatch(self):
+        registry = AdapterRegistry(tariff=Tariff.M)
+        adapter = _FakeAIAdapter()
+        manifest = {
+            "manifest_version": "1.0",
+            "adapter_type": "risk_scoring",
+            "slot_name": "ai_governance",
+            "namespace": "@gimel/ai-governance",
+            "issued_at": time.time() - 60,
+            "expires_at": time.time() + 3600,
+            "public_key": "deadbeef",
+            "signature": "deadbeef",
+            "checksum": "abc123",
+        }
+        with pytest.raises(AdapterRegistrationError) as exc_info:
+            registry.register(adapter, manifest=manifest)
+        assert "adapter_type" in str(exc_info.value).lower()
+
+    def test_ct_reg_022_type_c_manifest_non_numeric_issued_at(self):
+        registry = AdapterRegistry(tariff=Tariff.M)
+        adapter = _FakeAIAdapter()
+        manifest = {
+            "manifest_version": "1.0",
+            "adapter_type": "ai_enrichment",
+            "slot_name": "ai_governance",
+            "namespace": "@gimel/ai-governance",
+            "issued_at": "2024-01-01",
+            "expires_at": time.time() + 3600,
+            "public_key": "deadbeef",
+            "signature": "deadbeef",
+            "checksum": "abc123",
+        }
+        with pytest.raises(AdapterRegistrationError) as exc_info:
+            registry.register(adapter, manifest=manifest)
+        assert "numeric" in str(exc_info.value).lower()
+
+    def test_ct_reg_022_type_c_manifest_empty_checksum(self):
+        registry = AdapterRegistry(tariff=Tariff.M)
+        adapter = _FakeAIAdapter()
+        manifest = {
+            "manifest_version": "1.0",
+            "adapter_type": "ai_enrichment",
+            "slot_name": "ai_governance",
+            "namespace": "@gimel/ai-governance",
+            "issued_at": time.time() - 60,
+            "expires_at": time.time() + 3600,
+            "public_key": "deadbeef",
+            "signature": "deadbeef",
+            "checksum": "",
+        }
+        with pytest.raises(AdapterRegistrationError) as exc_info:
+            registry.register(adapter, manifest=manifest)
+        assert "checksum" in str(exc_info.value).lower()
 
     def test_ct_reg_022_type_c_manifest_wrong_namespace(self):
         registry = AdapterRegistry(tariff=Tariff.M)
@@ -266,10 +350,31 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_lic_abcdefghij.short")
         assert registry._license_token is None
 
-    def test_license_token_valid_accepted(self):
-        token = "gimel_lic_abcdefghij.1234567890abcdef"
-        registry = AdapterRegistry(tariff=Tariff.O, license_token=token)
-        assert registry._license_token == token
+    def test_license_token_valid_hmac_accepted(self):
+        old_secret = os.environ.get("GAUTH_API_SECRET")
+        os.environ["GAUTH_API_SECRET"] = "test_secret"
+        try:
+            token = _make_license_token()
+            registry = AdapterRegistry(tariff=Tariff.O, license_token=token)
+            assert registry._license_token == token
+        finally:
+            if old_secret is not None:
+                os.environ["GAUTH_API_SECRET"] = old_secret
+            else:
+                os.environ.pop("GAUTH_API_SECRET", None)
+
+    def test_license_token_invalid_hmac_rejected(self):
+        old_secret = os.environ.get("GAUTH_API_SECRET")
+        os.environ["GAUTH_API_SECRET"] = "production_secret"
+        try:
+            token = _make_license_token(secret="wrong_secret")
+            registry = AdapterRegistry(tariff=Tariff.O, license_token=token)
+            assert registry._license_token is None
+        finally:
+            if old_secret is not None:
+                os.environ["GAUTH_API_SECRET"] = old_secret
+            else:
+                os.environ.pop("GAUTH_API_SECRET", None)
 
     def test_license_token_arbitrary_long_string_rejected(self):
         registry = AdapterRegistry(tariff=Tariff.O, license_token="a" * 100)

@@ -91,7 +91,7 @@ def _is_dev_mode() -> bool:
     return os.environ.get("GAUTH_DEV_MODE", "").lower() == "true"
 
 
-def _validate_license_token_format(token: str) -> tuple[bool, str]:
+def _validate_license_token(token: str, api_secret: str | None = None) -> tuple[bool, str]:
     if not isinstance(token, str):
         return False, "license_token must be a string"
     token = token.strip()
@@ -110,6 +110,18 @@ def _validate_license_token_format(token: str) -> tuple[bool, str]:
         return False, "license_token body is too short"
     if len(sig) < 16:
         return False, "license_token signature is too short"
+    secret = api_secret or os.environ.get("GAUTH_API_SECRET", "")
+    if secret:
+        expected_sig = hmac.new(
+            secret.encode(), body.encode(), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return False, "license_token HMAC signature verification failed"
+    else:
+        logger.warning(
+            "GAUTH_API_SECRET not set — license_token HMAC cannot be verified. "
+            "Set GAUTH_API_SECRET for production use."
+        )
     return True, ""
 
 
@@ -119,6 +131,11 @@ def _verify_ed25519_manifest(
     manifest: dict[str, Any],
     revoked_keys: set[str] | None = None,
 ) -> None:
+    """7-step Ed25519 manifest verification pipeline for Type C slots.
+
+    Steps: 1) parse, 2) schema, 3) adapter_type binding, 4) temporal,
+    5) namespace, 6) revocation, 7) Ed25519 signature + checksum.
+    """
     if not isinstance(manifest, dict):
         raise ManifestVerificationError(
             "Manifest must be a JSON object", step="parse"
@@ -138,16 +155,38 @@ def _verify_ed25519_manifest(
             step="schema_validation",
         )
 
+    adapter_type = getattr(adapter, "ADAPTER_TYPE", None)
+    if manifest.get("adapter_type") != adapter_type:
+        raise ManifestVerificationError(
+            f"Manifest adapter_type '{manifest.get('adapter_type')}' does not match "
+            f"adapter ADAPTER_TYPE '{adapter_type}'",
+            step="adapter_type_binding",
+        )
+
     now = time.time()
-    issued_at = manifest.get("issued_at", 0)
-    expires_at = manifest.get("expires_at", 0)
-    if isinstance(issued_at, (int, float)) and issued_at > now:
+    issued_at = manifest.get("issued_at")
+    expires_at = manifest.get("expires_at")
+    if not isinstance(issued_at, (int, float)):
+        raise ManifestVerificationError(
+            f"Manifest issued_at must be a numeric Unix timestamp, got {type(issued_at).__name__}",
+            step="temporal_validation",
+        )
+    if not isinstance(expires_at, (int, float)):
+        raise ManifestVerificationError(
+            f"Manifest expires_at must be a numeric Unix timestamp, got {type(expires_at).__name__}",
+            step="temporal_validation",
+        )
+    if issued_at > now:
         raise ManifestVerificationError(
             "Manifest issued_at is in the future", step="temporal_validation"
         )
-    if isinstance(expires_at, (int, float)) and expires_at < now:
+    if expires_at < now:
         raise ManifestVerificationError(
             "Manifest has expired", step="temporal_validation"
+        )
+    if expires_at <= issued_at:
+        raise ManifestVerificationError(
+            "Manifest expires_at must be after issued_at", step="temporal_validation"
         )
 
     namespace = manifest.get("namespace", "")
@@ -169,12 +208,26 @@ def _verify_ed25519_manifest(
             "Manifest signature is empty", step="signature_verification"
         )
 
+    expected_checksum = manifest.get("checksum", "")
+    if not expected_checksum:
+        raise ManifestVerificationError(
+            "Manifest checksum is required and cannot be empty",
+            step="checksum_verification",
+        )
+
+    manifest_body = {k: v for k, v in manifest.items() if k not in ("signature", "checksum")}
+    canonical_bytes = json.dumps(manifest_body, sort_keys=True, separators=(",", ":")).encode()
+    computed_checksum = hashlib.sha256(canonical_bytes).hexdigest()
+    if not hmac.compare_digest(computed_checksum, expected_checksum):
+        raise ManifestVerificationError(
+            f"Manifest checksum mismatch: expected {expected_checksum}, computed {computed_checksum}",
+            step="checksum_verification",
+        )
+
     try:
         from nacl.signing import VerifyKey
         from nacl.encoding import HexEncoder
         verify_key = VerifyKey(public_key.encode(), encoder=HexEncoder)
-        manifest_copy = {k: v for k, v in manifest.items() if k != "signature"}
-        canonical_bytes = json.dumps(manifest_copy, sort_keys=True, separators=(",", ":")).encode()
         verify_key.verify(canonical_bytes, bytes.fromhex(signature))
     except ImportError:
         raise ManifestVerificationError(
@@ -213,7 +266,7 @@ class AdapterRegistry:
         self._trusted_namespaces = trusted_namespaces or TRUSTED_NAMESPACES
         self._signing_key = signing_key
         self._tariff = tariff
-        self._license_token = self._validate_license_token(license_token)
+        self._license_token = self._check_license_token(license_token)
         self._revoked_keys = revoked_keys or set()
         if allow_untrusted and not _is_dev_mode():
             logger.warning(
@@ -232,10 +285,10 @@ class AdapterRegistry:
         self._audit_log: list[dict[str, Any]] = []
 
     @staticmethod
-    def _validate_license_token(token: str | None) -> str | None:
+    def _check_license_token(token: str | None) -> str | None:
         if token is None:
             return None
-        valid, reason = _validate_license_token_format(token)
+        valid, reason = _validate_license_token(token)
         if not valid:
             logger.warning("license_token rejected: %s", reason)
             return None
@@ -297,27 +350,7 @@ class AdapterRegistry:
         if adapter_type not in ADAPTER_BASE_TYPES:
             raise AdapterRegistrationError(f"Unknown adapter type: {adapter_type}")
 
-        base_type = ADAPTER_BASE_TYPES[adapter_type]
-        if not isinstance(adapter, base_type):
-            raise AdapterRegistrationError(
-                f"Adapter must be an instance of {base_type.__name__}"
-            )
-
         effective_slot = self._get_slot_name_for_adapter_type(adapter_type)
-
-        if force:
-            if not self._license_token:
-                self._log_audit("registration_rejected", {
-                    "adapter_type": adapter_type,
-                    "slot": effective_slot,
-                    "reason": "force=True requires a valid license token",
-                    "error_code": "LICENSE_REQUIRED",
-                })
-                raise AdapterRegistrationError(
-                    "force=True requires a valid Gimel license token. "
-                    "Provide license_token to the registry constructor.",
-                    error_code="LICENSE_REQUIRED",
-                )
 
         gate = check_tariff_gate(effective_slot, self._tariff)
         if not gate.allowed and not _is_noop(adapter):
@@ -332,6 +365,26 @@ class AdapterRegistry:
                 f"Tariff gate denied: {gate.reason}",
                 error_code="TARIFF_GATE_DENIED",
             )
+
+        base_type = ADAPTER_BASE_TYPES[adapter_type]
+        if not isinstance(adapter, base_type):
+            raise AdapterRegistrationError(
+                f"Adapter must be an instance of {base_type.__name__}"
+            )
+
+        if force:
+            if not self._license_token:
+                self._log_audit("registration_rejected", {
+                    "adapter_type": adapter_type,
+                    "slot": effective_slot,
+                    "reason": "force=True requires a valid license token",
+                    "error_code": "LICENSE_REQUIRED",
+                })
+                raise AdapterRegistrationError(
+                    "force=True requires a valid Gimel license token. "
+                    "Provide license_token to the registry constructor.",
+                    error_code="LICENSE_REQUIRED",
+                )
 
         if effective_slot in TYPE_C_SLOTS and not _is_noop(adapter):
             if manifest is None:
