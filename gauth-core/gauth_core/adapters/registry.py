@@ -320,13 +320,19 @@ class AdapterRegistry:
     ) -> None:
         """Register an adapter into its canonical slot with tariff gate enforcement.
 
+        **Design Decision (supersedes per-call tariff):**
         Tariff is an immutable registry-level invariant (set at construction via
-        ``AdapterRegistry(tariff=...)``). It is NOT accepted per-call to prevent
-        callers from forging a higher tariff to bypass licensing controls.
+        ``AdapterRegistry(tariff=...)``). It is intentionally NOT accepted as a
+        per-call parameter to prevent callers from forging a higher tariff to
+        bypass licensing controls. This supersedes any spec text requesting a
+        per-call ``tariff`` argument on ``register()``.
 
         Slot assignment is derived authoritatively from ``adapter_type`` via
         ``SLOT_TO_ADAPTER_TYPE``; no caller-supplied ``slot_name`` override is
         accepted, preventing policy bypass through slot forgery.
+
+        Validation order: type resolution → tariff gate → type check → force/
+        license → Type C manifest → trust validation → registration.
         """
         if adapter_type is None:
             adapter_type = getattr(adapter, "ADAPTER_TYPE", None)
