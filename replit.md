@@ -115,20 +115,21 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: MPL 2.0 (see Python SDK note below)
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 196 tests across 7 test modules
+- **Tests**: 298 tests across 9 test modules
 
-### Submodules (9 total)
+### Submodules (10 total)
 
 | Module | Purpose |
 |--------|---------|
-| `schema/` | Pydantic v2 models, enums, error codes (RFC 0116) |
-| `profiles/` | 5 governance profiles, ceiling table (14 attributes each) |
+| `schema/` | Pydantic v2 models, enums, error codes, W3C VC types (RFC 0116) |
+| `profiles/` | 5 governance profiles, ceiling table (15 attributes each incl. approval_required_for_delegation) |
 | `utils/` | SHA-256 canonical JSON checksums |
 | `validation/` | 3-stage pipeline (schema, ceiling, consistency C-1..C-6) |
 | `storage/` | Abstract repository + InMemory + SQLAlchemy implementations |
-| `adapters/` | Protected adapter system (4 slots, tariff gate, Type C Ed25519 manifest verification, trust validation) |
-| `mgmt/` | Mandate lifecycle service (RFC 0118) |
-| `pep/` | 16-check enforcement engine, two-pass delegation (RFC 0117) |
+| `adapters/` | Protected adapter system (9 slots, tariff gate, Type C Ed25519 manifest verification, trust validation) |
+| `mgmt/` | Mandate lifecycle service (RFC 0118) with delegation approval gate + PoA map summary |
+| `pep/` | 16-check enforcement engine, two-pass delegation, OAuth pre-check, full CHK-09 constraint eval (RFC 0117) |
+| `vc/` | W3C VC translation layer: PoA→VC serialization, DID resolution, Data Integrity Proofs, SD-JWT, Bitstring Status List, OpenID4VCI/VP stubs |
 | `http/` | Optional FastAPI binding (17 mgmt + 4 PEP endpoints) |
 
 ### Key Concepts
@@ -140,7 +141,9 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Adapter trust**: namespace verification (`gauth_adapters_gimel.*`), HMAC signature, or `allow_untrusted=True` (GAUTH_DEV_MODE=true only)
 - **Type C slots**: ai_governance, web3_identity, dna_identity — require Ed25519 signed manifest (fail-closed)
 - **Budget**: additive-only increases; consumption tracked with idempotency keys
-- **Delegation**: scope narrowing, budget carving, depth limits per profile
+- **Delegation**: scope narrowing, budget carving, depth limits per profile, approval gate (supervised=1, four-eyes=2 approvers)
+- **W3C VC**: PoA→VC Data Model v2.0 serialization, DID resolution (did:web, did:key), Data Integrity Proofs, SD-JWT, Bitstring Status List, OpenID4VCI/VP stubs
+- **Mandatory slots**: oauth_engine (unregister rejected)
 
 ## Key Commands
 

@@ -19,14 +19,24 @@ from typing import Any, Type
 from gauth_core.adapters.base import (
     AIEnrichmentAdapter,
     ComplianceEnrichmentAdapter,
+    DnaIdentityAdapter,
+    GovernanceAdapter,
+    OAuthEngineAdapter,
     RegulatoryReasoningAdapter,
     RiskScoringAdapter,
+    WalletAdapter,
+    Web3IdentityAdapter,
 )
 from gauth_core.adapters.defaults import (
     NoOpAIEnrichmentAdapter,
     NoOpComplianceEnrichmentAdapter,
+    NoOpDnaIdentityAdapter,
+    NoOpGovernanceAdapter,
+    NoOpOAuthEngineAdapter,
     NoOpRegulatoryReasoningAdapter,
     NoOpRiskScoringAdapter,
+    NoOpWalletAdapter,
+    NoOpWeb3IdentityAdapter,
 )
 from gauth_core.schema.enums import (
     SLOT_TYPE_CLASSIFICATION,
@@ -43,6 +53,11 @@ ADAPTER_BASE_TYPES: dict[str, type] = {
     "risk_scoring": RiskScoringAdapter,
     "regulatory_reasoning": RegulatoryReasoningAdapter,
     "compliance_enrichment": ComplianceEnrichmentAdapter,
+    "oauth_engine": OAuthEngineAdapter,
+    "governance": GovernanceAdapter,
+    "web3_identity": Web3IdentityAdapter,
+    "dna_identity": DnaIdentityAdapter,
+    "wallet": WalletAdapter,
 }
 
 NOOP_CLASSES: set[str] = {
@@ -50,6 +65,11 @@ NOOP_CLASSES: set[str] = {
     "NoOpRiskScoringAdapter",
     "NoOpRegulatoryReasoningAdapter",
     "NoOpComplianceEnrichmentAdapter",
+    "NoOpOAuthEngineAdapter",
+    "NoOpGovernanceAdapter",
+    "NoOpWeb3IdentityAdapter",
+    "NoOpDnaIdentityAdapter",
+    "NoOpWalletAdapter",
 }
 
 SLOT_TO_ADAPTER_TYPE: dict[str, str] = {
@@ -57,7 +77,12 @@ SLOT_TO_ADAPTER_TYPE: dict[str, str] = {
     "web3_identity": "risk_scoring",
     "dna_identity": "regulatory_reasoning",
     "pdp": "compliance_enrichment",
+    "oauth_engine": "oauth_engine",
+    "foundry": "governance",
+    "wallet": "wallet",
 }
+
+MANDATORY_SLOTS: frozenset[str] = frozenset({"oauth_engine"})
 
 TRUSTED_NAMESPACES = frozenset({
     "gauth_adapters_gimel",
@@ -130,11 +155,6 @@ def _verify_ed25519_manifest(
     manifest: dict[str, Any],
     revoked_keys: set[str] | None = None,
 ) -> None:
-    """7-step Ed25519 manifest verification pipeline for Type C slots.
-
-    Steps: 1) parse, 2) schema, 3) adapter_type binding, 4) temporal,
-    5) namespace, 6) revocation, 7) Ed25519 signature + checksum.
-    """
     if not isinstance(manifest, dict):
         raise ManifestVerificationError(
             "Manifest must be a JSON object", step="parse"
@@ -269,6 +289,11 @@ class AdapterRegistry:
             "risk_scoring": NoOpRiskScoringAdapter(),
             "regulatory_reasoning": NoOpRegulatoryReasoningAdapter(),
             "compliance_enrichment": NoOpComplianceEnrichmentAdapter(),
+            "oauth_engine": NoOpOAuthEngineAdapter(),
+            "governance": NoOpGovernanceAdapter(),
+            "web3_identity": NoOpWeb3IdentityAdapter(),
+            "dna_identity": NoOpDnaIdentityAdapter(),
+            "wallet": NoOpWalletAdapter(),
         }
         self._audit_log: list[dict[str, Any]] = []
 
@@ -318,22 +343,6 @@ class AdapterRegistry:
         manifest: dict[str, Any] | None = None,
         force: bool = False,
     ) -> None:
-        """Register an adapter into its canonical slot with tariff gate enforcement.
-
-        **Design Decision (supersedes per-call tariff):**
-        Tariff is an immutable registry-level invariant (set at construction via
-        ``AdapterRegistry(tariff=...)``). It is intentionally NOT accepted as a
-        per-call parameter to prevent callers from forging a higher tariff to
-        bypass licensing controls. This supersedes any spec text requesting a
-        per-call ``tariff`` argument on ``register()``.
-
-        Slot assignment is derived authoritatively from ``adapter_type`` via
-        ``SLOT_TO_ADAPTER_TYPE``; no caller-supplied ``slot_name`` override is
-        accepted, preventing policy bypass through slot forgery.
-
-        Validation order: type resolution → tariff gate → type check → force/
-        license → Type C manifest → trust validation → registration.
-        """
         if adapter_type is None:
             adapter_type = getattr(adapter, "ADAPTER_TYPE", None)
             if adapter_type is None:
@@ -428,16 +437,54 @@ class AdapterRegistry:
         })
         logger.info("Registered adapter for '%s': %s", adapter_type, type(adapter).__qualname__)
 
+    def unregister(self, adapter_type: str) -> None:
+        if adapter_type not in ADAPTER_BASE_TYPES:
+            raise AdapterRegistrationError(f"Unknown adapter type: {adapter_type}")
+
+        effective_slot = self._get_slot_name_for_adapter_type(adapter_type)
+        if effective_slot in MANDATORY_SLOTS or adapter_type in MANDATORY_SLOTS:
+            raise AdapterRegistrationError(
+                f"Cannot unregister mandatory slot '{effective_slot}'. "
+                "Mandatory slots must always have a registered adapter.",
+                error_code="MANDATORY_SLOT_UNREGISTER_DENIED",
+            )
+
+        noop_map: dict[str, type] = {
+            "ai_enrichment": NoOpAIEnrichmentAdapter,
+            "risk_scoring": NoOpRiskScoringAdapter,
+            "regulatory_reasoning": NoOpRegulatoryReasoningAdapter,
+            "compliance_enrichment": NoOpComplianceEnrichmentAdapter,
+            "oauth_engine": NoOpOAuthEngineAdapter,
+            "governance": NoOpGovernanceAdapter,
+            "web3_identity": NoOpWeb3IdentityAdapter,
+            "dna_identity": NoOpDnaIdentityAdapter,
+            "wallet": NoOpWalletAdapter,
+        }
+
+        noop_cls = noop_map.get(adapter_type)
+        if noop_cls:
+            self._adapters[adapter_type] = noop_cls()
+
+        self._log_audit("adapter_unregistered", {
+            "adapter_type": adapter_type,
+            "slot": effective_slot,
+        })
+
     def change_tariff(self, new_tariff: Tariff) -> list[dict[str, Any]]:
         old_tariff = self._tariff
         self._tariff = new_tariff
         deactivated: list[dict[str, Any]] = []
 
-        defaults = {
+        defaults: dict[str, type] = {
             "ai_enrichment": NoOpAIEnrichmentAdapter,
             "risk_scoring": NoOpRiskScoringAdapter,
             "regulatory_reasoning": NoOpRegulatoryReasoningAdapter,
             "compliance_enrichment": NoOpComplianceEnrichmentAdapter,
+            "oauth_engine": NoOpOAuthEngineAdapter,
+            "governance": NoOpGovernanceAdapter,
+            "web3_identity": NoOpWeb3IdentityAdapter,
+            "dna_identity": NoOpDnaIdentityAdapter,
+            "wallet": NoOpWalletAdapter,
         }
 
         for adapter_type, adapter in list(self._adapters.items()):
@@ -515,6 +562,26 @@ class AdapterRegistry:
     @property
     def compliance_enrichment(self) -> ComplianceEnrichmentAdapter:
         return self._adapters["compliance_enrichment"]
+
+    @property
+    def oauth_engine(self) -> OAuthEngineAdapter:
+        return self._adapters["oauth_engine"]
+
+    @property
+    def governance(self) -> GovernanceAdapter:
+        return self._adapters["governance"]
+
+    @property
+    def web3_identity(self) -> Web3IdentityAdapter:
+        return self._adapters["web3_identity"]
+
+    @property
+    def dna_identity(self) -> DnaIdentityAdapter:
+        return self._adapters["dna_identity"]
+
+    @property
+    def wallet(self) -> WalletAdapter:
+        return self._adapters["wallet"]
 
     def get(self, adapter_type: str) -> Any:
         if adapter_type not in self._adapters:

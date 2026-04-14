@@ -1,10 +1,10 @@
 """Abstract adapter interfaces for proprietary Gimel service extensions.
 
 These interfaces define the extension points where proprietary services
-(AI enrichment, risk scoring, regulatory reasoning, compliance) can be
-plugged into the GAuth Open Core. The core 16-check PEP pipeline is
-never altered by adapters — they operate at defined hook points
-(pre-evaluation enrichment, post-evaluation compliance).
+(AI enrichment, risk scoring, regulatory reasoning, compliance, OAuth,
+governance, Web3 identity, DNA identity, wallet) can be plugged into
+the GAuth Open Core. The core 16-check PEP pipeline is never altered
+by adapters — they operate at defined hook points.
 
 Adapters are registered through the AdapterRegistry with trust validation.
 Only signed or namespace-verified adapter implementations are accepted.
@@ -17,13 +17,6 @@ from typing import Any
 
 
 class AIEnrichmentAdapter(ABC):
-    """Pre-evaluation AI enrichment — proprietary extension point.
-
-    Called before the PEP evaluation pipeline to enrich the enforcement
-    request with AI-derived context (threat analysis, intent classification,
-    risk signals). The enrichment output is advisory — it does not alter
-    the deterministic PEP checks but may add metadata to the audit record.
-    """
 
     ADAPTER_TYPE = "ai_enrichment"
 
@@ -33,7 +26,6 @@ class AIEnrichmentAdapter(ABC):
         enforcement_request: dict[str, Any],
         mandate: dict[str, Any],
     ) -> dict[str, Any]:
-        """Return enrichment metadata to attach to the enforcement context."""
         ...
 
     @abstractmethod
@@ -42,12 +34,6 @@ class AIEnrichmentAdapter(ABC):
 
 
 class RiskScoringAdapter(ABC):
-    """Risk scoring — proprietary extension point.
-
-    Computes a composite risk score for a mandate creation or enforcement
-    request. Used by AI-assisted registration paths (Paths 1-3) to guide
-    governance profile selection and constraint recommendations.
-    """
 
     ADAPTER_TYPE = "risk_scoring"
 
@@ -57,7 +43,6 @@ class RiskScoringAdapter(ABC):
         mandate_data: dict[str, Any],
         context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return risk assessment with score, factors, and recommendations."""
         ...
 
     @abstractmethod
@@ -66,12 +51,6 @@ class RiskScoringAdapter(ABC):
 
 
 class RegulatoryReasoningAdapter(ABC):
-    """Regulatory reasoning — proprietary extension point.
-
-    Provides regulatory interpretation and compliance analysis for mandate
-    creation. Maps governance profiles to regulatory requirements based on
-    sector, region, and organizational context.
-    """
 
     ADAPTER_TYPE = "regulatory_reasoning"
 
@@ -81,7 +60,6 @@ class RegulatoryReasoningAdapter(ABC):
         mandate_data: dict[str, Any],
         regulatory_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return regulatory analysis with requirements and recommendations."""
         ...
 
     @abstractmethod
@@ -90,13 +68,6 @@ class RegulatoryReasoningAdapter(ABC):
 
 
 class ComplianceEnrichmentAdapter(ABC):
-    """Post-evaluation compliance enrichment — proprietary extension point.
-
-    Called after the PEP evaluation pipeline to add compliance-layer
-    analysis (architecture compliance, prompt injection detection,
-    outbound content scanning). Results are non-normative and clearly
-    separated from PEP decisions in the output.
-    """
 
     ADAPTER_TYPE = "compliance_enrichment"
 
@@ -106,7 +77,190 @@ class ComplianceEnrichmentAdapter(ABC):
         enforcement_decision: dict[str, Any],
         enforcement_request: dict[str, Any],
     ) -> dict[str, Any]:
-        """Return compliance enrichment results (non-normative)."""
+        ...
+
+    @abstractmethod
+    def health_check(self) -> bool:
+        ...
+
+
+class OAuthEngineAdapter(ABC):
+
+    ADAPTER_TYPE = "oauth_engine"
+    IS_MANDATORY_SLOT = True
+
+    @abstractmethod
+    def issue_token(
+        self,
+        grant_type: str,
+        client_id: str,
+        scope: list[str] | None = None,
+        claims: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def validate_token(self, token: str) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def revoke_token(self, token: str, token_type_hint: str = "access_token") -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def get_jwks(self) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def introspect(self, token: str) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def before_token_issuance(self, context: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def after_token_issuance(self, token_response: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def health_check(self) -> bool:
+        ...
+
+
+class GovernanceAdapter(ABC):
+
+    ADAPTER_TYPE = "governance"
+
+    @abstractmethod
+    def evaluate_governance_policy(
+        self,
+        mandate: dict[str, Any],
+        action: dict[str, Any],
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def get_governance_requirements(
+        self,
+        profile: str,
+        sector: str | None = None,
+        region: str | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def validate_compliance_state(
+        self,
+        mandate_id: str,
+        current_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def health_check(self) -> bool:
+        ...
+
+
+class Web3IdentityAdapter(ABC):
+
+    ADAPTER_TYPE = "web3_identity"
+
+    @abstractmethod
+    def resolve_did(self, did: str) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def verify_credential(self, credential: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def create_presentation(
+        self,
+        credentials: list[dict[str, Any]],
+        holder_did: str,
+        challenge: str | None = None,
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def verify_presentation(self, presentation: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def health_check(self) -> bool:
+        ...
+
+
+class DnaIdentityAdapter(ABC):
+
+    ADAPTER_TYPE = "dna_identity"
+
+    @abstractmethod
+    def verify_identity(
+        self,
+        subject: str,
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def get_identity_assurance_level(
+        self,
+        subject: str,
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def create_identity_binding(
+        self,
+        subject: str,
+        mandate_id: str,
+        binding_type: str = "standard",
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def health_check(self) -> bool:
+        ...
+
+
+class WalletAdapter(ABC):
+
+    ADAPTER_TYPE = "wallet"
+
+    @abstractmethod
+    def store_credential(self, credential: dict[str, Any]) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def retrieve_credential(self, credential_id: str) -> dict[str, Any] | None:
+        ...
+
+    @abstractmethod
+    def list_credentials(self, query: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        ...
+
+    @abstractmethod
+    def delete_credential(self, credential_id: str) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def generate_selective_disclosure(
+        self,
+        credential_id: str,
+        disclosure_frame: dict[str, Any],
+    ) -> dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def present_credential(
+        self,
+        credential_id: str,
+        presentation_definition: dict[str, Any],
+        holder_did: str | None = None,
+    ) -> dict[str, Any]:
         ...
 
     @abstractmethod

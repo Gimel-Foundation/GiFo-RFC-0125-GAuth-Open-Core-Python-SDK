@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +16,8 @@ from gauth_core.schema.enums import (
     APPROVAL_MODE_RANK,
 )
 from gauth_core.profiles.ceilings import get_ceiling
+
+logger = logging.getLogger(__name__)
 
 
 def _check_result(
@@ -239,6 +242,52 @@ def chk_08_verb(
     return _check_result("CHK-08", "Verb", True, message=f"Verb '{verb}' authorized")
 
 
+KNOWN_CONSTRAINT_KEYS = frozenset({
+    "path_patterns",
+    "allowed_commands",
+    "denied_commands",
+    "max_delegation_depth",
+    "max_file_size_bytes",
+})
+
+
+def _evaluate_path_patterns(resource: str, patterns: list[str]) -> str | None:
+    if not patterns or not resource:
+        return None
+    for pattern in patterns:
+        if fnmatch.fnmatch(resource, pattern):
+            return None
+    return f"Resource '{resource}' does not match any path_patterns: {patterns}"
+
+
+def _evaluate_allowed_commands(command: str, allowed: list[str]) -> str | None:
+    if not allowed or not command:
+        return None
+    if command not in allowed:
+        return f"Command '{command}' not in allowed_commands: {allowed}"
+    return None
+
+
+def _evaluate_denied_commands(command: str, denied: list[str]) -> str | None:
+    if not denied or not command:
+        return None
+    if command in denied:
+        return f"Command '{command}' is in denied_commands"
+    return None
+
+
+def _evaluate_max_delegation_depth(current_depth: int, max_depth: int) -> str | None:
+    if current_depth > max_depth:
+        return f"Delegation depth {current_depth} exceeds max_delegation_depth {max_depth}"
+    return None
+
+
+def _evaluate_max_file_size_bytes(file_size: int, max_size: int) -> str | None:
+    if file_size > max_size:
+        return f"File size {file_size} exceeds max_file_size_bytes {max_size}"
+    return None
+
+
 def chk_09_constraints(
     credential: dict[str, Any],
     action: dict[str, Any],
@@ -259,14 +308,106 @@ def chk_09_constraints(
 
     verb = action.get("verb", "")
     policy = core_verbs.get(verb, {})
-    if isinstance(policy, dict) and policy.get("constraints"):
-        return _check_result(
-            "CHK-09", "Constraints", True,
-            CheckSeverity.INFO, message="Constraints present",
-            details={"constraints": policy["constraints"]},
-        )
+    if not isinstance(policy, dict):
+        return _check_result("CHK-09", "Constraints", True, message="No constraints to evaluate")
 
-    return _check_result("CHK-09", "Constraints", True, message="No constraints to evaluate")
+    constraints = policy.get("constraints", {})
+    if not constraints:
+        return _check_result("CHK-09", "Constraints", True, message="No constraints to evaluate")
+
+    params = action.get("parameters", {})
+    resource = action.get("resource", "")
+
+    for key in constraints:
+        if key not in KNOWN_CONSTRAINT_KEYS:
+            logger.info(
+                "CHK-09: Unknown extension constraint key '%s' — logged as informational, no DENY",
+                key,
+            )
+
+    if "denied_commands" in constraints:
+        command = params.get("command", "")
+        violation = _evaluate_denied_commands(command, constraints["denied_commands"])
+        if violation:
+            return _check_result(
+                "CHK-09", "Constraints", False,
+                CheckSeverity.ERROR, "CONSTRAINT_VIOLATED",
+                violation,
+                details={"constraint_key": "denied_commands", "constraints": constraints},
+            )
+
+    if "allowed_commands" in constraints:
+        command = params.get("command", "")
+        violation = _evaluate_allowed_commands(command, constraints["allowed_commands"])
+        if violation:
+            return _check_result(
+                "CHK-09", "Constraints", False,
+                CheckSeverity.ERROR, "CONSTRAINT_VIOLATED",
+                violation,
+                details={"constraint_key": "allowed_commands", "constraints": constraints},
+            )
+
+    if "path_patterns" in constraints:
+        violation = _evaluate_path_patterns(resource, constraints["path_patterns"])
+        if violation:
+            return _check_result(
+                "CHK-09", "Constraints", False,
+                CheckSeverity.ERROR, "CONSTRAINT_VIOLATED",
+                violation,
+                details={"constraint_key": "path_patterns", "constraints": constraints},
+            )
+
+    if "max_delegation_depth" in constraints:
+        current_depth = len(credential.get("delegation_chain", []))
+        violation = _evaluate_max_delegation_depth(
+            current_depth, constraints["max_delegation_depth"]
+        )
+        if violation:
+            return _check_result(
+                "CHK-09", "Constraints", False,
+                CheckSeverity.ERROR, "CONSTRAINT_VIOLATED",
+                violation,
+                details={"constraint_key": "max_delegation_depth", "constraints": constraints},
+            )
+
+    if "max_file_size_bytes" in constraints:
+        file_size = params.get("file_size_bytes", 0)
+        violation = _evaluate_max_file_size_bytes(
+            file_size, constraints["max_file_size_bytes"]
+        )
+        if violation:
+            return _check_result(
+                "CHK-09", "Constraints", False,
+                CheckSeverity.ERROR, "CONSTRAINT_VIOLATED",
+                violation,
+                details={"constraint_key": "max_file_size_bytes", "constraints": constraints},
+            )
+
+    return _check_result(
+        "CHK-09", "Constraints", True,
+        CheckSeverity.INFO, message="All constraints satisfied",
+        details={"constraints": constraints},
+    )
+
+
+def narrow_constraints(parent_constraints: dict[str, Any], child_constraints: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(parent_constraints)
+    for key, child_val in child_constraints.items():
+        if key not in merged:
+            merged[key] = child_val
+            continue
+        parent_val = merged[key]
+        if key in ("max_delegation_depth", "max_file_size_bytes"):
+            merged[key] = min(parent_val, child_val)
+        elif key == "allowed_commands":
+            merged[key] = sorted(set(parent_val) & set(child_val))
+        elif key == "denied_commands":
+            merged[key] = sorted(set(parent_val) | set(child_val))
+        elif key == "path_patterns":
+            merged[key] = sorted(set(parent_val) & set(child_val)) if parent_val else child_val
+        else:
+            merged[key] = child_val
+    return merged
 
 
 def chk_10_platform(

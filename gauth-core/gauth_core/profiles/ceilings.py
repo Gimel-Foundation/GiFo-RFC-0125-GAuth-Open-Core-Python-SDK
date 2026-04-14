@@ -25,6 +25,7 @@ class CeilingDefinition:
     max_session_duration_minutes: int | None
     max_tool_calls: int | None
     max_lines_per_commit: int | None
+    approval_required_for_delegation: bool = False
     description: str = ""
     registration_context: str = ""
 
@@ -65,6 +66,7 @@ CEILING_TABLE: dict[GovernanceProfile, CeilingDefinition] = {
         max_session_duration_minutes=240,
         max_tool_calls=500,
         max_lines_per_commit=500,
+        approval_required_for_delegation=True,
         description="Balanced restrictions. Supervised approval.",
         registration_context="Small teams, general development",
     ),
@@ -84,6 +86,7 @@ CEILING_TABLE: dict[GovernanceProfile, CeilingDefinition] = {
         max_session_duration_minutes=120,
         max_tool_calls=200,
         max_lines_per_commit=200,
+        approval_required_for_delegation=True,
         description="Restrictive. Audited packages, allowlist shell.",
         registration_context="Regulated industries",
     ),

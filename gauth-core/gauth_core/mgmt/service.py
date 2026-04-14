@@ -412,6 +412,71 @@ class MandateManagementService:
             "budget_exceeded": remaining == 0 and total > 0,
         }
 
+    def generate_poa_map(self, mandate_id: str) -> dict[str, Any]:
+        mandate = self._repo.get(mandate_id)
+        if not mandate:
+            raise ManagementError(ManagementErrorCode.MANDATE_NOT_FOUND, f"Mandate {mandate_id} not found")
+
+        scope = mandate.get("scope", {})
+        requirements = mandate.get("requirements", {})
+        parties = mandate.get("parties", {})
+
+        permissions: list[dict[str, str]] = []
+        core_verbs = scope.get("core_verbs", {})
+        allowed_actions: list[str] = []
+        for verb_name, policy in core_verbs.items():
+            if isinstance(policy, dict):
+                if policy.get("allowed", True):
+                    allowed_actions.append(verb_name)
+                    permissions.append({
+                        "action": verb_name,
+                        "resource": "*",
+                        "effect": "allow",
+                    })
+                else:
+                    permissions.append({
+                        "action": verb_name,
+                        "resource": "*",
+                        "effect": "deny",
+                    })
+            elif policy:
+                allowed_actions.append(verb_name)
+                permissions.append({
+                    "action": verb_name,
+                    "resource": "*",
+                    "effect": "allow",
+                })
+
+        for path in scope.get("allowed_paths", []):
+            permissions.append({
+                "action": "*",
+                "resource": path,
+                "effect": "allow",
+            })
+        for path in scope.get("denied_paths", []):
+            permissions.append({
+                "action": "*",
+                "resource": path,
+                "effect": "deny",
+            })
+
+        allowed_decisions = scope.get("allowed_decisions", [])
+        approval_mode = requirements.get("approval_mode", "autonomous")
+        if approval_mode != "autonomous" and "approval" not in allowed_decisions:
+            allowed_decisions = list(allowed_decisions) + [approval_mode]
+
+        return {
+            "mandate_id": mandate_id,
+            "subject": parties.get("subject", ""),
+            "governance_profile": scope.get("governance_profile", ""),
+            "status": mandate.get("status", ""),
+            "permissions": permissions,
+            "allowed_actions": sorted(allowed_actions),
+            "allowed_decisions": allowed_decisions,
+            "allowed_sectors": scope.get("allowed_sectors", []),
+            "allowed_regions": scope.get("allowed_regions", []),
+        }
+
     def delete_draft(self, mandate_id: str) -> dict[str, Any]:
         mandate = self._repo.get(mandate_id)
         if not mandate:
@@ -545,9 +610,14 @@ class MandateManagementService:
                 elif key in {"governance_profile", "phase"}:
                     pass
 
+        approval_mode = parent["requirements"].get("approval_mode", "autonomous")
+        requires_approval = ceiling.approval_required_for_delegation and approval_mode != "autonomous"
+
+        initial_status = MandateStatus.PENDING_APPROVAL.value if requires_approval else MandateStatus.ACTIVE.value
+
         child_mandate = {
             "mandate_id": child_id,
-            "status": MandateStatus.ACTIVE.value,
+            "status": initial_status,
             "parties": {
                 "subject": delegate_agent_id,
                 "customer_id": parent["parties"]["customer_id"],
@@ -566,8 +636,8 @@ class MandateManagementService:
                 child_scope.get("platform_permissions", {})
             ),
             "created_at": now.isoformat(),
-            "activated_at": now.isoformat(),
-            "expires_at": expires_at.isoformat(),
+            "activated_at": now.isoformat() if not requires_approval else None,
+            "expires_at": expires_at.isoformat() if not requires_approval else None,
             "ttl_seconds": ttl_seconds,
             "budget_state": {
                 "total_cents": budget_cents,
@@ -603,10 +673,10 @@ class MandateManagementService:
             parent_mandate_id=parent_mandate_id,
         )
 
-        return {
+        result = {
             "mandate_id": child_id,
             "parent_mandate_id": parent_mandate_id,
-            "status": MandateStatus.ACTIVE.value,
+            "status": initial_status,
             "delegate_agent_id": delegate_agent_id,
             "scope_restriction": scope_restriction,
             "budget_cents": budget_cents,
@@ -620,6 +690,14 @@ class MandateManagementService:
             },
             "audit": audit,
         }
+
+        if requires_approval:
+            result["approval_required"] = True
+            required_approvers = 2 if approval_mode == "four-eyes" else 1
+            result["required_approvers"] = required_approvers
+            result["pending_approvals"] = []
+
+        return result
 
     def get_delegation_chain(self, mandate_id: str) -> dict[str, Any]:
         mandate = self._repo.get(mandate_id)
@@ -661,6 +739,110 @@ class MandateManagementService:
             "remaining_depth": max(0, max_depth - len(chain_raw)),
         }
 
+    def approve_delegation(
+        self,
+        mandate_id: str,
+        approved_by: str,
+    ) -> dict[str, Any]:
+        mandate = self._repo.get(mandate_id)
+        if not mandate:
+            raise ManagementError(ManagementErrorCode.MANDATE_NOT_FOUND, f"Mandate {mandate_id} not found")
+
+        if mandate["status"] != MandateStatus.PENDING_APPROVAL.value:
+            raise ManagementError(
+                ManagementErrorCode.DELEGATION_NOT_PENDING,
+                "Mandate is not in PENDING_APPROVAL state",
+            )
+
+        parent_id = mandate.get("parent_mandate_id")
+        parent = self._repo.get(parent_id) if parent_id else None
+        approval_mode = "autonomous"
+        if parent:
+            approval_mode = parent.get("requirements", {}).get("approval_mode", "autonomous")
+
+        approvals = mandate.get("_approvals", [])
+        if approved_by in [a["approved_by"] for a in approvals]:
+            raise ManagementError(
+                ManagementErrorCode.DELEGATION_ALREADY_APPROVED,
+                f"Already approved by {approved_by}",
+            )
+
+        approvals.append({"approved_by": approved_by, "approved_at": self._now().isoformat()})
+        required_approvers = 2 if approval_mode == "four-eyes" else 1
+
+        if len(approvals) >= required_approvers:
+            now = self._now()
+            ttl = mandate.get("ttl_seconds", 3600)
+            expires_at = now + timedelta(seconds=ttl)
+            self._repo.update_status(
+                mandate_id, MandateStatus.ACTIVE.value,
+                activated_at=now.isoformat(),
+                expires_at=expires_at.isoformat(),
+                _approvals=approvals,
+            )
+
+            self._audit(OperationType.DELEGATION_APPROVE, approved_by, mandate_id)
+
+            return {
+                "mandate_id": mandate_id,
+                "status": MandateStatus.ACTIVE.value,
+                "activated_at": now.isoformat(),
+                "expires_at": expires_at.isoformat(),
+                "approvals": approvals,
+                "fully_approved": True,
+            }
+        else:
+            self._repo.update_status(
+                mandate_id, MandateStatus.PENDING_APPROVAL.value,
+                _approvals=approvals,
+            )
+
+            self._audit(OperationType.DELEGATION_APPROVE, approved_by, mandate_id)
+
+            return {
+                "mandate_id": mandate_id,
+                "status": MandateStatus.PENDING_APPROVAL.value,
+                "approvals": approvals,
+                "fully_approved": False,
+                "remaining_approvers": required_approvers - len(approvals),
+            }
+
+    def reject_delegation(
+        self,
+        mandate_id: str,
+        rejected_by: str,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        mandate = self._repo.get(mandate_id)
+        if not mandate:
+            raise ManagementError(ManagementErrorCode.MANDATE_NOT_FOUND, f"Mandate {mandate_id} not found")
+
+        if mandate["status"] != MandateStatus.PENDING_APPROVAL.value:
+            raise ManagementError(
+                ManagementErrorCode.DELEGATION_NOT_PENDING,
+                "Mandate is not in PENDING_APPROVAL state",
+            )
+
+        self._repo.update_status(mandate_id, MandateStatus.DELETED.value)
+
+        parent_id = mandate.get("parent_mandate_id")
+        if parent_id:
+            parent = self._repo.get(parent_id)
+            if parent:
+                budget = parent.get("budget_state", {})
+                child_budget = mandate.get("budget_state", {}).get("total_cents", 0)
+                new_reserved = max(0, budget.get("reserved_for_delegations_cents", 0) - child_budget)
+                self._repo.update_reservation(parent_id, new_reserved)
+
+        self._audit(OperationType.DELEGATION_REJECT, rejected_by, mandate_id, reason=reason)
+
+        return {
+            "mandate_id": mandate_id,
+            "status": MandateStatus.DELETED.value,
+            "rejected_by": rejected_by,
+            "reason": reason,
+        }
+
     def get_profiles(self) -> list[dict[str, Any]]:
         return list_profiles()
 
@@ -688,6 +870,7 @@ class MandateManagementService:
                 "max_session_duration_minutes": ceiling.max_session_duration_minutes,
                 "max_tool_calls": ceiling.max_tool_calls,
                 "max_lines_per_commit": ceiling.max_lines_per_commit,
+                "approval_required_for_delegation": ceiling.approval_required_for_delegation,
             },
         }
 

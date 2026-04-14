@@ -10,7 +10,7 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-from gauth_core.adapters.registry import AdapterRegistry
+from gauth_core.adapters.registry import AdapterRegistry, _is_noop
 from gauth_core.pep.checks import (
     CHECKS_REGISTRY,
     chk_05_sector,
@@ -135,6 +135,49 @@ class PEPEngine:
 
         return effective
 
+    def _oauth_pre_check(
+        self,
+        request_id: str,
+        credential: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        oauth_adapter = self._adapters.oauth_engine
+        if _is_noop(oauth_adapter):
+            return None
+
+        if not self._is_adapter_compliant("oauth_engine"):
+            return None
+
+        oauth_token = context.get("oauth_token") or credential.get("oauth_token", "")
+        if not oauth_token:
+            return None
+
+        try:
+            result = oauth_adapter.validate_token(oauth_token)
+            active = result.get("active", False)
+            if not active:
+                return {
+                    "check_id": "CHK-OAUTH",
+                    "check_name": "OAuth Token Validation",
+                    "result": "fail",
+                    "severity": CheckSeverity.ERROR.value,
+                    "violation_code": "OAUTH_TOKEN_INVALID",
+                    "message": "OAuth token validation failed — token is not active",
+                    "details": {"oauth_result": result},
+                }
+        except Exception as exc:
+            return {
+                "check_id": "CHK-OAUTH",
+                "check_name": "OAuth Token Validation",
+                "result": "fail",
+                "severity": CheckSeverity.ERROR.value,
+                "violation_code": "OAUTH_TOKEN_INVALID",
+                "message": f"OAuth token validation error: {exc}",
+                "details": {},
+            }
+
+        return None
+
     def enforce_action(
         self,
         request_id: str | None = None,
@@ -157,6 +200,25 @@ class PEPEngine:
         credential = credential or {}
         action = action or {}
         context = context or {}
+
+        oauth_denial = self._oauth_pre_check(request_id, credential, context)
+        if oauth_denial:
+            return {
+                "request_id": request_id,
+                "decision": Decision.DENY.value,
+                "checks": [oauth_denial],
+                "enforced_constraints": [],
+                "violations": [oauth_denial],
+                "audit": {
+                    "request_id": request_id,
+                    "credential_ref": credential.get("mandate_id", ""),
+                    "enforcement_mode": "pre_check",
+                    "processing_time_ms": round((time.monotonic() - start_time) * 1000, 2),
+                    "pep_interface_version": "1.1",
+                    "timestamp": now.isoformat(),
+                    "checks_evaluated": 1,
+                },
+            }
 
         requested_mode = context.get("enforcement_mode")
         if requested_mode:
