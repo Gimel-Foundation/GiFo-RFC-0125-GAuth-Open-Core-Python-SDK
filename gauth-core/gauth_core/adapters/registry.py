@@ -187,7 +187,7 @@ class AdapterRegistry:
         self._trusted_namespaces = trusted_namespaces or TRUSTED_NAMESPACES
         self._signing_key = signing_key
         self._tariff = tariff
-        self._license_token = license_token
+        self._license_token = self._validate_license_token(license_token)
         self._revoked_keys = revoked_keys or set()
         if allow_untrusted and not _is_dev_mode():
             logger.warning(
@@ -204,6 +204,17 @@ class AdapterRegistry:
             "compliance_enrichment": NoOpComplianceEnrichmentAdapter(),
         }
         self._audit_log: list[dict[str, Any]] = []
+
+    @staticmethod
+    def _validate_license_token(token: str | None) -> str | None:
+        if token is None:
+            return None
+        if not isinstance(token, str) or len(token.strip()) < 16:
+            logger.warning(
+                "license_token rejected: must be a non-empty string of at least 16 characters"
+            )
+            return None
+        return token.strip()
 
     @property
     def tariff(self) -> Tariff:
@@ -238,7 +249,6 @@ class AdapterRegistry:
         adapter: Any,
         adapter_type: str | None = None,
         signature: bytes | None = None,
-        slot_name: str | None = None,
         manifest: dict[str, Any] | None = None,
         force: bool = False,
     ) -> None:
@@ -258,7 +268,7 @@ class AdapterRegistry:
                 f"Adapter must be an instance of {base_type.__name__}"
             )
 
-        effective_slot = slot_name or self._get_slot_name_for_adapter_type(adapter_type)
+        effective_slot = self._get_slot_name_for_adapter_type(adapter_type)
 
         if force:
             if not self._license_token:

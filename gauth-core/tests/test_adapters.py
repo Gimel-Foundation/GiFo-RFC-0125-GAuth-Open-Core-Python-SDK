@@ -3,7 +3,7 @@
 import os
 import pytest
 
-from gauth_core.adapters.base import AIEnrichmentAdapter
+from gauth_core.adapters.base import AIEnrichmentAdapter, ComplianceEnrichmentAdapter
 from gauth_core.adapters.defaults import (
     NoOpAIEnrichmentAdapter,
     NoOpComplianceEnrichmentAdapter,
@@ -69,17 +69,17 @@ class TestAdapterRegistry:
         old_val = os.environ.get("GAUTH_DEV_MODE")
         os.environ["GAUTH_DEV_MODE"] = "true"
         try:
-            registry = AdapterRegistry(allow_untrusted=True, tariff=Tariff.M)
+            registry = AdapterRegistry(allow_untrusted=True, tariff=Tariff.O)
 
-            class TestAdapter(AIEnrichmentAdapter):
-                ADAPTER_TYPE = "ai_enrichment"
-                def enrich(self, req, mandate):
+            class TestComplianceAdapter(ComplianceEnrichmentAdapter):
+                ADAPTER_TYPE = "compliance_enrichment"
+                def evaluate(self, decision, request):
                     return {"source": "test"}
                 def health_check(self):
                     return True
 
-            registry.register(TestAdapter(), slot_name="pdp")
-            result = registry.ai_enrichment.enrich({}, {})
+            registry.register(TestComplianceAdapter())
+            result = registry.compliance_enrichment.evaluate({}, {})
             assert result["source"] == "test"
         finally:
             if old_val is not None:

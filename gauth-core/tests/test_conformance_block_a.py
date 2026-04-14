@@ -77,7 +77,7 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.O)
         adapter = _FakeAIAdapter()
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance")
+            registry.register(adapter)
         assert exc_info.value.error_code == "TARIFF_GATE_DENIED"
 
     def test_ct_reg_020_force_without_license_raises_license_required(self):
@@ -88,7 +88,7 @@ class TestRegistrationEnforcementConformance:
         assert exc_info.value.error_code == "LICENSE_REQUIRED"
 
     def test_ct_reg_020_force_with_license_succeeds(self):
-        registry = AdapterRegistry(tariff=Tariff.O, license_token="valid_token_123")
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_valid_token_1234567890")
         adapter = NoOpAIEnrichmentAdapter()
         registry.register(adapter, force=True)
         assert registry.ai_enrichment is adapter
@@ -119,14 +119,14 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.M)
         adapter = _FakeAIAdapter()
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance")
+            registry.register(adapter)
         assert exc_info.value.error_code == "ATTESTATION_REQUIRED"
 
     def test_ct_reg_022_type_c_invalid_manifest_rejected(self):
         registry = AdapterRegistry(tariff=Tariff.M)
         adapter = _FakeAIAdapter()
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance", manifest={})
+            registry.register(adapter, manifest={})
         assert exc_info.value.error_code == "ATTESTATION_REQUIRED"
 
     def test_ct_reg_022_type_c_manifest_wrong_namespace(self):
@@ -144,7 +144,7 @@ class TestRegistrationEnforcementConformance:
             "checksum": "abc123",
         }
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance", manifest=manifest)
+            registry.register(adapter, manifest=manifest)
         assert "namespace" in str(exc_info.value).lower()
 
     def test_ct_reg_022_type_c_manifest_expired(self):
@@ -162,7 +162,7 @@ class TestRegistrationEnforcementConformance:
             "checksum": "abc123",
         }
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance", manifest=manifest)
+            registry.register(adapter, manifest=manifest)
         assert "expired" in str(exc_info.value).lower()
 
     def test_ct_reg_022_type_c_manifest_revoked_key(self):
@@ -182,7 +182,7 @@ class TestRegistrationEnforcementConformance:
             "checksum": "abc123",
         }
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance", manifest=manifest)
+            registry.register(adapter, manifest=manifest)
         assert "revoked" in str(exc_info.value).lower()
 
     def test_ct_reg_023_tariff_downgrade_deactivates_adapters(self):
@@ -218,7 +218,7 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.S)
         adapter = _FakeAIAdapter()
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance")
+            registry.register(adapter)
         assert exc_info.value.error_code == "TARIFF_GATE_DENIED"
 
     def test_noop_adapter_on_blocked_slot_allowed(self):
@@ -231,8 +231,29 @@ class TestRegistrationEnforcementConformance:
         registry = AdapterRegistry(tariff=Tariff.O)
         adapter = _FakeAIAdapter()
         with pytest.raises(AdapterRegistrationError) as exc_info:
-            registry.register(adapter, slot_name="ai_governance")
+            registry.register(adapter)
         assert "not available" in str(exc_info.value).lower() or "denied" in str(exc_info.value).lower()
+
+    def test_slot_name_override_removed_from_register(self):
+        import inspect
+        sig = inspect.signature(AdapterRegistry.register)
+        assert "slot_name" not in sig.parameters
+
+    def test_license_token_too_short_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="short")
+        assert registry._license_token is None
+
+    def test_license_token_empty_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="")
+        assert registry._license_token is None
+
+    def test_license_token_whitespace_only_rejected(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="               ")
+        assert registry._license_token is None
+
+    def test_license_token_valid_accepted(self):
+        registry = AdapterRegistry(tariff=Tariff.O, license_token="gimel_valid_token_1234567890")
+        assert registry._license_token == "gimel_valid_token_1234567890"
 
 
 class TestLicenseComplianceConformance:
