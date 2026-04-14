@@ -22,6 +22,26 @@ from gauth_core.utils.checksums import (
 from gauth_core.validation.pipeline import validate_mandate, ValidationResult
 
 
+def _narrow_constraints(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(parent)
+    for key, child_val in child.items():
+        if key not in merged:
+            merged[key] = child_val
+            continue
+        parent_val = merged[key]
+        if key in ("max_delegation_depth", "max_file_size_bytes"):
+            merged[key] = min(parent_val, child_val)
+        elif key == "allowed_commands":
+            merged[key] = sorted(set(parent_val) & set(child_val))
+        elif key == "denied_commands":
+            merged[key] = sorted(set(parent_val) | set(child_val))
+        elif key == "path_patterns":
+            merged[key] = sorted(set(parent_val) & set(child_val)) if parent_val else child_val
+        else:
+            merged[key] = child_val
+    return merged
+
+
 class ManagementError(Exception):
     def __init__(self, code: ManagementErrorCode, message: str, details: dict[str, Any] | None = None):
         super().__init__(message)
@@ -460,10 +480,10 @@ class MandateManagementService:
                 "effect": "deny",
             })
 
-        allowed_decisions = scope.get("allowed_decisions", [])
+        allowed_decisions = list(scope.get("allowed_decisions", []))
         approval_mode = requirements.get("approval_mode", "autonomous")
         if approval_mode != "autonomous" and "approval" not in allowed_decisions:
-            allowed_decisions = list(allowed_decisions) + [approval_mode]
+            allowed_decisions.append("approval")
 
         return {
             "mandate_id": mandate_id,
@@ -590,6 +610,10 @@ class MandateManagementService:
                                     merged["max_per_session"] = min(p_max, c_max)
                                 elif p_max is not None:
                                     merged["max_per_session"] = p_max
+                            parent_constraints = parent_policy.get("constraints", {})
+                            child_constraints = child_policy.get("constraints", {})
+                            if parent_constraints or child_constraints:
+                                merged["constraints"] = _narrow_constraints(parent_constraints, child_constraints)
                             narrowed[k] = merged
                     child_scope["core_verbs"] = narrowed
                 elif key in bool_restrict_keys and isinstance(value, dict):

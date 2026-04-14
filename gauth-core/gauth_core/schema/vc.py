@@ -18,7 +18,7 @@ W3C_CREDENTIALS_V2_CONTEXT = "https://www.w3.org/ns/credentials/v2"
 
 class DataIntegrityProof(BaseModel):
     type: str = "DataIntegrityProof"
-    cryptosuite: str = "ecdsa-rdfc-2019"
+    cryptosuite: str = "gauth-hash-jcs-2024"
     created: datetime | None = None
     verification_method: str = Field(default="", alias="verificationMethod")
     proof_purpose: str = Field(default="assertionMethod", alias="proofPurpose")
@@ -142,6 +142,33 @@ class DeletionReceipt(BaseModel):
 class SDFrame(BaseModel):
     disclosed_claims: list[str] = Field(default_factory=list)
     redacted_claims: list[str] = Field(default_factory=list)
+
+
+class TokenValidationResult(BaseModel):
+    active: bool = False
+    source: str = ""
+    client_id: str | None = None
+    scope: str | None = None
+    exp: int | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class IntrospectionResult(BaseModel):
+    active: bool = False
+    client_id: str | None = None
+    token_type: str | None = Field(default=None, alias="token_type")
+    scope: str | None = None
+    sub: str | None = None
+    exp: int | None = None
+    iat: int | None = None
+    iss: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class JWKSResponse(BaseModel):
+    keys: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SDJWT(BaseModel):

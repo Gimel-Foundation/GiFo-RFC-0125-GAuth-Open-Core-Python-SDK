@@ -137,10 +137,14 @@ def vc_to_jwt_payload(vc: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+STUB_CRYPTOSUITE = "gauth-hash-jcs-2024"
+
+
 def create_data_integrity_proof(
     vc: dict[str, Any],
     verification_method: str = "",
     proof_value: str = "",
+    cryptosuite: str = STUB_CRYPTOSUITE,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
@@ -150,7 +154,7 @@ def create_data_integrity_proof(
 
     return {
         "type": "DataIntegrityProof",
-        "cryptosuite": "ecdsa-rdfc-2019",
+        "cryptosuite": cryptosuite,
         "created": now.isoformat(),
         "verificationMethod": verification_method,
         "proofPurpose": "assertionMethod",
@@ -166,15 +170,19 @@ def verify_data_integrity_proof(vc: dict[str, Any]) -> dict[str, Any]:
     if proof.get("type") != "DataIntegrityProof":
         return {"verified": False, "reason": f"Unsupported proof type: {proof.get('type')}"}
 
-    if proof.get("cryptosuite") != "ecdsa-rdfc-2019":
-        return {"verified": False, "reason": f"Unsupported cryptosuite: {proof.get('cryptosuite')}"}
+    suite = proof.get("cryptosuite", "")
+    if suite == STUB_CRYPTOSUITE:
+        vc_without_proof = {k: v for k, v in vc.items() if k != "proof"}
+        canonical = json.dumps(vc_without_proof, sort_keys=True, separators=(",", ":"))
+        expected = hashlib.sha256(canonical.encode()).hexdigest()
 
-    vc_without_proof = {k: v for k, v in vc.items() if k != "proof"}
-    canonical = json.dumps(vc_without_proof, sort_keys=True, separators=(",", ":"))
-    expected = hashlib.sha256(canonical.encode()).hexdigest()
+        proof_value = proof.get("proofValue", "")
+        if proof_value == expected:
+            return {"verified": True, "cryptosuite": suite, "mode": "hash-based-stub"}
 
-    proof_value = proof.get("proofValue", "")
-    if proof_value == expected:
-        return {"verified": True, "cryptosuite": proof.get("cryptosuite")}
+        return {"verified": False, "reason": "Proof value mismatch"}
 
-    return {"verified": False, "reason": "Proof value mismatch (stub verification)"}
+    return {
+        "verified": False,
+        "reason": f"Cryptosuite '{suite}' requires key-based verification (not available in Open Core stub mode)",
+    }

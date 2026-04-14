@@ -115,7 +115,7 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: MPL 2.0 (see Python SDK note below)
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 298 tests across 9 test modules
+- **Tests**: 304 tests across 9 test modules
 
 ### Submodules (10 total)
 

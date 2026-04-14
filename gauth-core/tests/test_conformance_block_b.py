@@ -857,7 +857,7 @@ class TestDataIntegrityProofs:
         })
         proof = create_data_integrity_proof(vc, verification_method="did:key:z123#key-1")
         assert proof["type"] == "DataIntegrityProof"
-        assert proof["cryptosuite"] == "ecdsa-rdfc-2019"
+        assert proof["cryptosuite"] == "gauth-hash-jcs-2024"
         assert proof["proofPurpose"] == "assertionMethod"
         assert len(proof["proofValue"]) > 0
 
@@ -1231,3 +1231,170 @@ class TestCTCFSecurityHardening:
         assert subject["mandate_id"] == "m-789"
         assert subject["governance_profile"] == "minimal"
         assert "_sd" not in payload
+
+    def test_data_integrity_proof_uses_stub_cryptosuite(self):
+        """CT-CF-028: Proof MUST use gauth-hash-jcs-2024 (not ecdsa-rdfc-2019)."""
+        from gauth_core.vc.serializer import create_data_integrity_proof, STUB_CRYPTOSUITE
+        proof = create_data_integrity_proof({"test": True})
+        assert proof["cryptosuite"] == STUB_CRYPTOSUITE
+        assert proof["cryptosuite"] != "ecdsa-rdfc-2019"
+
+    def test_data_integrity_verify_rejects_unknown_cryptosuite(self):
+        """CT-CF-029: Unknown cryptosuite MUST fail verification."""
+        from gauth_core.vc.serializer import verify_data_integrity_proof
+        vc = {
+            "id": "test",
+            "proof": {
+                "type": "DataIntegrityProof",
+                "cryptosuite": "ecdsa-rdfc-2019",
+                "proofValue": "fake",
+            },
+        }
+        result = verify_data_integrity_proof(vc)
+        assert result["verified"] is False
+        assert "key-based verification" in result["reason"]
+
+    def test_oauth_schema_types_exist(self):
+        """CT-CF-030: OAuth schema response types MUST be importable."""
+        from gauth_core.schema.vc import TokenValidationResult, IntrospectionResult, JWKSResponse
+        tvr = TokenValidationResult(active=True, source="noop")
+        assert tvr.active is True
+        ir = IntrospectionResult(active=True, client_id="c1")
+        assert ir.client_id == "c1"
+        jwks = JWKSResponse(keys=[{"kty": "RSA"}])
+        assert len(jwks.keys) == 1
+
+
+class TestDelegationConstraintNarrowing:
+    """CT-MGMT-031–033: Delegation constraint narrowing in create_delegation."""
+
+    def _setup_service(self):
+        import os
+        os.environ["GAUTH_DEV_MODE"] = "true"
+        from gauth_core.mgmt.service import MandateManagementService
+        from gauth_core.storage.memory import InMemoryMandateRepository
+        repo = InMemoryMandateRepository()
+        return MandateManagementService(repo), repo
+
+    def test_delegation_narrows_constraints_min_numeric(self):
+        """CT-MGMT-031: Numeric constraints use min() during delegation."""
+        svc, repo = self._setup_service()
+
+        parent = svc.create_mandate({
+            "parties": {"issued_by": "owner", "customer_id": "c1", "project_id": "p1", "subject": "agent-parent"},
+            "scope": {
+                "governance_profile": "minimal",
+                "phase": "exploration",
+                "allowed_sectors": ["health"],
+                "allowed_regions": ["EU"],
+                "core_verbs": {
+                    "read": {
+                        "allowed": True,
+                        "constraints": {
+                            "max_file_size_bytes": 10000,
+                            "max_delegation_depth": 5,
+                            "path_patterns": ["/data/*", "/logs/*"],
+                        }
+                    }
+                },
+            },
+            "requirements": {"approval_mode": "autonomous", "ttl_seconds": 7200,
+                             "budget": {"total_cents": 5000}},
+        })
+        svc.activate_mandate(parent["mandate_id"], "owner")
+
+        result = svc.create_delegation(
+            parent_mandate_id=parent["mandate_id"],
+            delegate_agent_id="agent-child",
+            delegated_by="agent-parent",
+            scope_restriction={
+                "core_verbs": {
+                    "read": {
+                        "allowed": True,
+                        "constraints": {
+                            "max_file_size_bytes": 5000,
+                            "max_delegation_depth": 3,
+                            "path_patterns": ["/data/*"],
+                        }
+                    }
+                }
+            },
+            budget_cents=1000,
+            ttl_seconds=3600,
+        )
+
+        child = repo.get(result["mandate_id"])
+        child_verbs = child["scope"]["core_verbs"]
+        constraints = child_verbs["read"]["constraints"]
+        assert constraints["max_file_size_bytes"] == 5000
+        assert constraints["max_delegation_depth"] == 3
+        assert constraints["path_patterns"] == ["/data/*"]
+
+    def test_delegation_narrows_constraints_denied_commands_union(self):
+        """CT-MGMT-032: denied_commands uses union during delegation."""
+        svc, repo = self._setup_service()
+
+        parent = svc.create_mandate({
+            "parties": {"issued_by": "owner", "customer_id": "c1", "project_id": "p1", "subject": "agent-parent"},
+            "scope": {
+                "governance_profile": "minimal",
+                "phase": "exploration",
+                "allowed_sectors": ["health"],
+                "allowed_regions": ["EU"],
+                "core_verbs": {
+                    "execute": {
+                        "allowed": True,
+                        "constraints": {
+                            "denied_commands": ["rm", "shutdown"],
+                        }
+                    }
+                },
+            },
+            "requirements": {"approval_mode": "autonomous", "ttl_seconds": 7200,
+                             "budget": {"total_cents": 5000}},
+        })
+        svc.activate_mandate(parent["mandate_id"], "owner")
+
+        result = svc.create_delegation(
+            parent_mandate_id=parent["mandate_id"],
+            delegate_agent_id="agent-child",
+            delegated_by="agent-parent",
+            scope_restriction={
+                "core_verbs": {
+                    "execute": {
+                        "allowed": True,
+                        "constraints": {
+                            "denied_commands": ["shutdown", "reboot"],
+                        }
+                    }
+                }
+            },
+            budget_cents=1000,
+            ttl_seconds=3600,
+        )
+
+        child = repo.get(result["mandate_id"])
+        constraints = child["scope"]["core_verbs"]["execute"]["constraints"]
+        assert sorted(constraints["denied_commands"]) == ["reboot", "rm", "shutdown"]
+
+    def test_poa_map_adds_approval_decision_for_supervised(self):
+        """CT-MGMT-033: PoA map adds 'approval' decision for non-autonomous modes."""
+        svc, repo = self._setup_service()
+
+        mandate = svc.create_mandate({
+            "parties": {"issued_by": "owner", "customer_id": "c1", "project_id": "p1", "subject": "agent-1"},
+            "scope": {
+                "governance_profile": "minimal",
+                "phase": "exploration",
+                "allowed_sectors": ["health"],
+                "allowed_regions": ["EU"],
+                "allowed_decisions": ["informational"],
+                "core_verbs": {"read": {"allowed": True}},
+            },
+            "requirements": {"approval_mode": "supervised", "ttl_seconds": 3600,
+                             "budget": {"total_cents": 1000}},
+        })
+
+        poa_map = svc.generate_poa_map(mandate["mandate_id"])
+        assert "approval" in poa_map["allowed_decisions"]
+        assert "informational" in poa_map["allowed_decisions"]
