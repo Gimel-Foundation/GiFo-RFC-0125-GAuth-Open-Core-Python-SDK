@@ -156,14 +156,12 @@ def create_data_integrity_proof(
     if not proof_value:
         digest = _canonical_hash(vc)
         if signing_key is not None:
-            try:
-                from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
-                from cryptography.hazmat.primitives import hashes
-                import base64 as b64
-                signature = signing_key.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
-                proof_value = b64.urlsafe_b64encode(signature).decode()
-            except Exception:
-                proof_value = digest.hex()
+            from cryptography.hazmat.primitives.asymmetric import ec
+            from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
+            from cryptography.hazmat.primitives import hashes
+            import base64 as b64
+            signature = signing_key.sign(digest, ec.ECDSA(Prehashed(hashes.SHA256())))
+            proof_value = b64.urlsafe_b64encode(signature).decode()
         else:
             proof_value = digest.hex()
 
@@ -197,15 +195,16 @@ def verify_data_integrity_proof(
     proof_value = proof.get("proofValue", "")
 
     if verification_key is not None:
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
+        from cryptography.hazmat.primitives import hashes
+        import base64 as b64
         try:
-            from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
-            from cryptography.hazmat.primitives import hashes
-            import base64 as b64
             signature = b64.urlsafe_b64decode(proof_value)
-            verification_key.verify(signature, digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+            verification_key.verify(signature, digest, ec.ECDSA(Prehashed(hashes.SHA256())))
             return {"verified": True, "cryptosuite": suite, "mode": "ecdsa"}
         except Exception as exc:
-            return {"verified": False, "reason": f"ECDSA verification failed: {exc}"}
+            return {"verified": False, "reason": f"ECDSA signature verification failed: {exc}"}
 
     expected_hex = digest.hex()
     if proof_value == expected_hex:

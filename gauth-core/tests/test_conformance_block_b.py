@@ -1256,6 +1256,57 @@ class TestCTCFSecurityHardening:
         assert result["verified"] is False
         assert "Unsupported cryptosuite" in result["reason"]
 
+    def test_data_integrity_ecdsa_sign_verify_roundtrip(self):
+        """CT-CF-031: ECDSA key-based sign + verify roundtrip MUST succeed."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from gauth_core.vc.serializer import create_data_integrity_proof, verify_data_integrity_proof
+
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+
+        vc = {"id": "urn:test:ecdsa", "type": ["VerifiableCredential"]}
+        proof = create_data_integrity_proof(
+            vc, verification_method="did:key:test#key-1", signing_key=private_key,
+        )
+        assert proof["cryptosuite"] == "ecdsa-rdfc-2019"
+        assert proof["proofValue"] != ""
+
+        vc_with_proof = {**vc, "proof": proof}
+        result = verify_data_integrity_proof(vc_with_proof, verification_key=public_key)
+        assert result["verified"] is True
+        assert result["mode"] == "ecdsa"
+
+    def test_data_integrity_ecdsa_tamper_detection(self):
+        """CT-CF-032: Tampered VC MUST fail ECDSA verification."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from gauth_core.vc.serializer import create_data_integrity_proof, verify_data_integrity_proof
+
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+
+        vc = {"id": "urn:test:tamper", "type": ["VerifiableCredential"]}
+        proof = create_data_integrity_proof(vc, signing_key=private_key)
+
+        vc_tampered = {"id": "urn:test:TAMPERED", "type": ["VerifiableCredential"], "proof": proof}
+        result = verify_data_integrity_proof(vc_tampered, verification_key=public_key)
+        assert result["verified"] is False
+        assert "ECDSA signature verification failed" in result["reason"]
+
+    def test_data_integrity_ecdsa_wrong_key_fails(self):
+        """CT-CF-033: Verification with wrong key MUST fail."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from gauth_core.vc.serializer import create_data_integrity_proof, verify_data_integrity_proof
+
+        sign_key = ec.generate_private_key(ec.SECP256R1())
+        wrong_key = ec.generate_private_key(ec.SECP256R1()).public_key()
+
+        vc = {"id": "urn:test:wrongkey"}
+        proof = create_data_integrity_proof(vc, signing_key=sign_key)
+
+        vc_with_proof = {**vc, "proof": proof}
+        result = verify_data_integrity_proof(vc_with_proof, verification_key=wrong_key)
+        assert result["verified"] is False
+
     def test_oauth_schema_types_exist(self):
         """CT-CF-030: OAuth schema response types MUST be importable."""
         from gauth_core.schema.vc import TokenValidationResult, IntrospectionResult, JWKSResponse
