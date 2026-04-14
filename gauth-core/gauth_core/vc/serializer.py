@@ -137,24 +137,39 @@ def vc_to_jwt_payload(vc: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-STUB_CRYPTOSUITE = "gauth-hash-jcs-2024"
+ECDSA_CRYPTOSUITE = "ecdsa-rdfc-2019"
+
+
+def _canonical_hash(data: dict[str, Any]) -> bytes:
+    canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).digest()
 
 
 def create_data_integrity_proof(
     vc: dict[str, Any],
     verification_method: str = "",
     proof_value: str = "",
-    cryptosuite: str = STUB_CRYPTOSUITE,
+    signing_key: Any | None = None,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
     if not proof_value:
-        canonical = json.dumps(vc, sort_keys=True, separators=(",", ":"))
-        proof_value = hashlib.sha256(canonical.encode()).hexdigest()
+        digest = _canonical_hash(vc)
+        if signing_key is not None:
+            try:
+                from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
+                from cryptography.hazmat.primitives import hashes
+                import base64 as b64
+                signature = signing_key.sign(digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+                proof_value = b64.urlsafe_b64encode(signature).decode()
+            except Exception:
+                proof_value = digest.hex()
+        else:
+            proof_value = digest.hex()
 
     return {
         "type": "DataIntegrityProof",
-        "cryptosuite": cryptosuite,
+        "cryptosuite": ECDSA_CRYPTOSUITE,
         "created": now.isoformat(),
         "verificationMethod": verification_method,
         "proofPurpose": "assertionMethod",
@@ -162,7 +177,10 @@ def create_data_integrity_proof(
     }
 
 
-def verify_data_integrity_proof(vc: dict[str, Any]) -> dict[str, Any]:
+def verify_data_integrity_proof(
+    vc: dict[str, Any],
+    verification_key: Any | None = None,
+) -> dict[str, Any]:
     proof = vc.get("proof")
     if not proof:
         return {"verified": False, "reason": "No proof present"}
@@ -171,18 +189,26 @@ def verify_data_integrity_proof(vc: dict[str, Any]) -> dict[str, Any]:
         return {"verified": False, "reason": f"Unsupported proof type: {proof.get('type')}"}
 
     suite = proof.get("cryptosuite", "")
-    if suite == STUB_CRYPTOSUITE:
-        vc_without_proof = {k: v for k, v in vc.items() if k != "proof"}
-        canonical = json.dumps(vc_without_proof, sort_keys=True, separators=(",", ":"))
-        expected = hashlib.sha256(canonical.encode()).hexdigest()
+    if suite != ECDSA_CRYPTOSUITE:
+        return {"verified": False, "reason": f"Unsupported cryptosuite: {suite}"}
 
-        proof_value = proof.get("proofValue", "")
-        if proof_value == expected:
-            return {"verified": True, "cryptosuite": suite, "mode": "hash-based-stub"}
+    vc_without_proof = {k: v for k, v in vc.items() if k != "proof"}
+    digest = _canonical_hash(vc_without_proof)
+    proof_value = proof.get("proofValue", "")
 
-        return {"verified": False, "reason": "Proof value mismatch"}
+    if verification_key is not None:
+        try:
+            from cryptography.hazmat.primitives.asymmetric import ec, utils as asym_utils
+            from cryptography.hazmat.primitives import hashes
+            import base64 as b64
+            signature = b64.urlsafe_b64decode(proof_value)
+            verification_key.verify(signature, digest, ec.ECDSA(utils.Prehashed(hashes.SHA256())))
+            return {"verified": True, "cryptosuite": suite, "mode": "ecdsa"}
+        except Exception as exc:
+            return {"verified": False, "reason": f"ECDSA verification failed: {exc}"}
 
-    return {
-        "verified": False,
-        "reason": f"Cryptosuite '{suite}' requires key-based verification (not available in Open Core stub mode)",
-    }
+    expected_hex = digest.hex()
+    if proof_value == expected_hex:
+        return {"verified": True, "cryptosuite": suite, "mode": "hash-integrity"}
+
+    return {"verified": False, "reason": "Proof value mismatch"}

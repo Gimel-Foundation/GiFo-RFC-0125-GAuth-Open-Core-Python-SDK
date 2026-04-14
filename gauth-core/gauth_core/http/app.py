@@ -164,6 +164,11 @@ def create_app(
         result = mgmt_service.get_delegation_chain(mandate_id)
         return JSONResponse(content=result)
 
+    @app.get("/gauth/mgmt/v1/mandates/{mandate_id}/poa-map")
+    async def get_poa_map(mandate_id: str) -> JSONResponse:
+        result = mgmt_service.generate_poa_map(mandate_id)
+        return JSONResponse(content=result)
+
     @app.get("/gauth/mgmt/v1/profiles")
     async def list_profiles() -> JSONResponse:
         result = mgmt_service.get_profiles()

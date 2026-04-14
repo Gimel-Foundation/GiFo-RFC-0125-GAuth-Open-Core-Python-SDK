@@ -480,6 +480,7 @@ class TestDelegationApprovalGate:
         )
         assert result["status"] == MandateStatus.PENDING_APPROVAL.value
         assert result["approval_required"] is True
+        assert result["outcome"] == "APPROVAL_REQUIRED"
         assert result["required_approvers"] == 1
 
     def test_ct_mgmt_027b_delegation_with_four_eyes_requires_2_approvers(self):
@@ -857,7 +858,7 @@ class TestDataIntegrityProofs:
         })
         proof = create_data_integrity_proof(vc, verification_method="did:key:z123#key-1")
         assert proof["type"] == "DataIntegrityProof"
-        assert proof["cryptosuite"] == "gauth-hash-jcs-2024"
+        assert proof["cryptosuite"] == "ecdsa-rdfc-2019"
         assert proof["proofPurpose"] == "assertionMethod"
         assert len(proof["proofValue"]) > 0
 
@@ -963,6 +964,7 @@ class TestBitstringStatusList:
             issuer_did="did:web:gauth.example",
         )
         assert "BitstringStatusListCredential" in cred["type"]
+        assert cred["@context"] == ["https://www.w3.org/ns/credentials/v2"]
         assert cred["credentialSubject"]["statusPurpose"] == "revocation"
         assert cred["credentialSubject"]["encodedList"] == sl.encode()
 
@@ -1232,12 +1234,12 @@ class TestCTCFSecurityHardening:
         assert subject["governance_profile"] == "minimal"
         assert "_sd" not in payload
 
-    def test_data_integrity_proof_uses_stub_cryptosuite(self):
-        """CT-CF-028: Proof MUST use gauth-hash-jcs-2024 (not ecdsa-rdfc-2019)."""
-        from gauth_core.vc.serializer import create_data_integrity_proof, STUB_CRYPTOSUITE
+    def test_data_integrity_proof_uses_ecdsa_cryptosuite(self):
+        """CT-CF-028: Proof MUST use ecdsa-rdfc-2019 cryptosuite."""
+        from gauth_core.vc.serializer import create_data_integrity_proof, ECDSA_CRYPTOSUITE
         proof = create_data_integrity_proof({"test": True})
-        assert proof["cryptosuite"] == STUB_CRYPTOSUITE
-        assert proof["cryptosuite"] != "ecdsa-rdfc-2019"
+        assert proof["cryptosuite"] == ECDSA_CRYPTOSUITE
+        assert proof["cryptosuite"] == "ecdsa-rdfc-2019"
 
     def test_data_integrity_verify_rejects_unknown_cryptosuite(self):
         """CT-CF-029: Unknown cryptosuite MUST fail verification."""
@@ -1246,13 +1248,13 @@ class TestCTCFSecurityHardening:
             "id": "test",
             "proof": {
                 "type": "DataIntegrityProof",
-                "cryptosuite": "ecdsa-rdfc-2019",
+                "cryptosuite": "unknown-suite-2099",
                 "proofValue": "fake",
             },
         }
         result = verify_data_integrity_proof(vc)
         assert result["verified"] is False
-        assert "key-based verification" in result["reason"]
+        assert "Unsupported cryptosuite" in result["reason"]
 
     def test_oauth_schema_types_exist(self):
         """CT-CF-030: OAuth schema response types MUST be importable."""

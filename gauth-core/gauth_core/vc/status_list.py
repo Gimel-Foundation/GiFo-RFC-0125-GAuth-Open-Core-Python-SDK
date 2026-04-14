@@ -68,7 +68,6 @@ class BitstringStatusList:
         return {
             "@context": [
                 "https://www.w3.org/ns/credentials/v2",
-                "https://w3id.org/vc/status-list/2021/v1",
             ],
             "id": credential_id,
             "type": ["VerifiableCredential", "BitstringStatusListCredential"],

@@ -18,7 +18,7 @@ W3C_CREDENTIALS_V2_CONTEXT = "https://www.w3.org/ns/credentials/v2"
 
 class DataIntegrityProof(BaseModel):
     type: str = "DataIntegrityProof"
-    cryptosuite: str = "gauth-hash-jcs-2024"
+    cryptosuite: str = "ecdsa-rdfc-2019"
     created: datetime | None = None
     verification_method: str = Field(default="", alias="verificationMethod")
     proof_purpose: str = Field(default="assertionMethod", alias="proofPurpose")

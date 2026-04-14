@@ -716,10 +716,13 @@ class MandateManagementService:
         }
 
         if requires_approval:
+            result["outcome"] = "APPROVAL_REQUIRED"
             result["approval_required"] = True
             required_approvers = 2 if approval_mode == "four-eyes" else 1
             result["required_approvers"] = required_approvers
             result["pending_approvals"] = []
+        else:
+            result["outcome"] = "CREATED"
 
         return result
 
