@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Shield, LayoutDashboard, FileText, Users, Key, LogOut, Map } from "lucide-react";
+import { LayoutDashboard, FileText, Users, Key, LogOut, Map } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useHealthCheck, useMgmtHealth } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <div className="w-64 border-r border-border bg-sidebar flex flex-col">
         <div className="h-14 border-b border-border flex items-center px-4 gap-2 text-primary font-bold tracking-tight">
-          <Shield className="h-5 w-5" />
+          <img src={`${import.meta.env.BASE_URL}gimel-logo.png`} alt="Gimel" className="h-6 w-6" />
           <span className="uppercase tracking-widest text-sm">GAuth Control</span>
         </div>
         

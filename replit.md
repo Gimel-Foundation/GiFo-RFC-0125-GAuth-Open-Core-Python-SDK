@@ -168,7 +168,9 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Auth**: HMAC-SHA256 bearer token computed from API Secret + X-Caller-Identity header
 - **Pages**: Dashboard overview (/), Mandates list (/mandates), Mandate detail (/mandates/:id), Governance Profiles (/profiles), Credentials (/credentials)
 - **API integration**: Orval-generated React Query hooks from `@workspace/api-client-react`
-- **Theme**: Dark cockpit-style with amber accents, monospace typography
+- **Theme**: Dark cockpit-style with Gimel Foundation deep purple/indigo branding, monospace typography
+- **Branding**: Gimel Foundation logo (transparent PNG at `public/gimel-logo.png`), purple accent palette (HSL 262 56%)
+- **PoA Map**: `/poa-map` — Flattened permissions view per mandate (core verbs, decisions, sectors, regions, platform boundaries)
 
 ## Key Commands
 

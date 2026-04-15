@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Shield } from "lucide-react";
 
 export default function AuthPage() {
   const { login } = useAuth();
@@ -25,9 +24,7 @@ export default function AuthPage() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="flex flex-col items-center text-center">
-          <div className="h-12 w-12 bg-primary flex items-center justify-center mb-4">
-            <Shield className="h-6 w-6 text-primary-foreground" />
-          </div>
+          <img src={`${import.meta.env.BASE_URL}gimel-logo.png`} alt="Gimel Foundation" className="h-16 w-16 mb-4" />
           <h1 className="text-3xl font-bold tracking-tight text-foreground uppercase">GAuth Control Plane</h1>
           <p className="text-muted-foreground mt-2 font-mono text-sm">RESTRICTED ACCESS AREA</p>
         </div>
