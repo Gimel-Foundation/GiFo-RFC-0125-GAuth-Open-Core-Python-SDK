@@ -159,6 +159,17 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **OpenID4VP**: Full presentation verification — session management, Data Integrity Proof validation, Bitstring Status List revocation check, nonce binding; ECDSA and hash-integrity modes
 - **Mandatory slots**: oauth_engine (unregister rejected)
 
+## GAuth Governance Dashboard
+
+- **Location**: `artifacts/dashboard/`
+- **Type**: React + Vite frontend (SPA)
+- **Port**: 23183
+- **Preview path**: `/dashboard/`
+- **Auth**: HMAC-SHA256 bearer token computed from API Secret + X-Caller-Identity header
+- **Pages**: Dashboard overview (/), Mandates list (/mandates), Mandate detail (/mandates/:id), Governance Profiles (/profiles), Credentials (/credentials)
+- **API integration**: Orval-generated React Query hooks from `@workspace/api-client-react`
+- **Theme**: Dark cockpit-style with amber accents, monospace typography
+
 ## Key Commands
 
 - `pnpm run typecheck` — full typecheck across all packages
