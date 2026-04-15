@@ -1,7 +1,7 @@
 import { useListProfiles, getGetProfileCeilingsQueryKey, getProfileCeilings } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Database } from "lucide-react";
+import { Shield, Database, AlertCircle } from "lucide-react";
 import type { GovernanceProfile, ProfileCeilings } from "@workspace/api-client-react";
 import { useQueries } from "@tanstack/react-query";
 
@@ -43,7 +43,7 @@ function CellValue({ value, type }: { value: unknown; type: 'boolean' | 'number'
 }
 
 export default function ProfilesPage() {
-  const { data: profiles, isLoading: isProfilesLoading } = useListProfiles();
+  const { data: profiles, isLoading: isProfilesLoading, isError: isProfilesError } = useListProfiles();
 
   const ceilingsQueries = useQueries({
     queries: PROFILES.map(p => ({
@@ -62,7 +62,13 @@ export default function ProfilesPage() {
         <p className="text-muted-foreground font-mono text-sm">Side-by-side comparison of all operational profiles and their absolute ceilings.</p>
       </div>
 
-      {allLoading ? (
+      {isProfilesError ? (
+        <Card className="bg-card border-border rounded-none shadow-none p-12 text-center">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <div className="font-mono text-destructive mb-2">Failed to load profiles</div>
+          <div className="font-mono text-xs text-muted-foreground">Check API connectivity and authentication.</div>
+        </Card>
+      ) : allLoading ? (
         <div className="p-8 text-center text-primary font-mono animate-pulse uppercase">Loading profiles...</div>
       ) : (
         <Card className="bg-card border-border rounded-none shadow-none">

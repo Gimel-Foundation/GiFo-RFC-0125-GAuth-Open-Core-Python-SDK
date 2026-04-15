@@ -8,8 +8,9 @@ import { Link } from "wouter";
 import { useState } from "react";
 import { format } from "date-fns";
 import { MandateStatus, GovernanceProfile } from "@workspace/api-client-react";
-import { Play, Pause, ShieldOff, ChevronLeft, ChevronRight } from "lucide-react";
+import { Play, Pause, ShieldOff, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 const STATUS_TABS = ["all", ...Object.values(MandateStatus)] as const;
 
@@ -27,7 +28,8 @@ export default function MandatesPage() {
     governance_profile: profileFilter !== "all" ? profileFilter as typeof GovernanceProfile[keyof typeof GovernanceProfile] : undefined,
   };
 
-  const { data, isLoading } = useListMandates(params);
+  const { data, isLoading, isError, error } = useListMandates(params);
+  const { toast } = useToast();
 
   const activateMutation = useActivateMandate();
   const suspendMutation = useSuspendMandate();
@@ -55,22 +57,21 @@ export default function MandatesPage() {
     queryClient.invalidateQueries({ queryKey: getListMandatesQueryKey(params) });
   };
 
-  const handleActivate = async (id: string) => {
-    await activateMutation.mutateAsync({ id });
-    invalidateList();
+  const handleMutationAction = async (action: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      invalidateList();
+      toast({ title: `Mandate ${action}d`, description: `Operation completed successfully.` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error occurred";
+      toast({ title: `Failed to ${action}`, description: message, variant: "destructive" });
+    }
   };
-  const handleSuspend = async (id: string) => {
-    await suspendMutation.mutateAsync({ id, data: { reason: "Suspended via dashboard" } });
-    invalidateList();
-  };
-  const handleResume = async (id: string) => {
-    await resumeMutation.mutateAsync({ id });
-    invalidateList();
-  };
-  const handleRevoke = async (id: string) => {
-    await revokeMutation.mutateAsync({ id, data: { reason: "Revoked via dashboard" } });
-    invalidateList();
-  };
+
+  const handleActivate = (id: string) => handleMutationAction("activate", () => activateMutation.mutateAsync({ id }));
+  const handleSuspend = (id: string) => handleMutationAction("suspend", () => suspendMutation.mutateAsync({ id, data: { reason: "Suspended via dashboard" } }));
+  const handleResume = (id: string) => handleMutationAction("resume", () => resumeMutation.mutateAsync({ id }));
+  const handleRevoke = (id: string) => handleMutationAction("revoke", () => revokeMutation.mutateAsync({ id, data: { reason: "Revoked via dashboard" } }));
 
   return (
     <div className="space-y-6">
@@ -139,7 +140,17 @@ export default function MandatesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {isLoading ? (
+                {isError ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <AlertCircle className="h-6 w-6 text-destructive" />
+                        <span className="text-destructive font-mono text-sm">Failed to load mandates</span>
+                        <span className="text-muted-foreground font-mono text-xs">{error instanceof Error ? error.message : "Connection error"}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : isLoading ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loading mandates...</td>
                   </tr>

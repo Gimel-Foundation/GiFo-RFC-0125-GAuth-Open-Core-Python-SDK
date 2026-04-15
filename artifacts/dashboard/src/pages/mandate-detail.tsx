@@ -7,6 +7,7 @@ import { Link, useParams } from "wouter";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import { getGetMandateQueryKey, getGetMandateHistoryQueryKey } from "@workspace/api-client-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
 import { useState } from "react";
@@ -61,6 +62,7 @@ export default function MandateDetailPage() {
   const { data: delegationChain, isLoading: isDelegationLoading } = useGetDelegationChain(id);
   const budget = mandate?.budget;
 
+  const { toast } = useToast();
   const activateMutation = useActivateMandate();
   const suspendMutation = useSuspendMandate();
   const resumeMutation = useResumeMandate();
@@ -71,7 +73,17 @@ export default function MandateDetailPage() {
   }
 
   if (!mandate) {
-    return <div className="p-8 text-center text-destructive font-mono uppercase tracking-widest">Mandate Not Found</div>;
+    return (
+      <div className="p-8 text-center space-y-4">
+        <ShieldAlert className="h-12 w-12 text-destructive mx-auto" />
+        <div className="text-destructive font-mono uppercase tracking-widest">Mandate Not Found</div>
+        <Link href="/mandates">
+          <Button variant="outline" className="rounded-none font-mono text-xs">
+            <ArrowLeft className="h-3 w-3 mr-1" /> Back to List
+          </Button>
+        </Link>
+      </div>
+    );
   }
 
   const getStatusColor = (status: string) => {
@@ -94,8 +106,10 @@ export default function MandateDetailPage() {
 
       queryClient.invalidateQueries({ queryKey: getGetMandateQueryKey(id) });
       queryClient.invalidateQueries({ queryKey: getGetMandateHistoryQueryKey(id) });
-    } catch (e) {
-      console.error(e);
+      toast({ title: `Mandate ${action}d`, description: `Successfully ${action}d mandate ${id.split('-')[0]}...` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error occurred";
+      toast({ title: `Failed to ${action}`, description: message, variant: "destructive" });
     }
   };
 

@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,11 +25,9 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ component: Component }: { component: ComponentType }) {
   const { isAuthenticated } = useAuth();
-  const [, setLocation] = useLocation();
 
   if (!isAuthenticated) {
-    setLocation("/login");
-    return null;
+    return <Redirect to="/login" />;
   }
 
   return (

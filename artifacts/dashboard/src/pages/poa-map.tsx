@@ -2,7 +2,7 @@ import { useListMandates } from "@workspace/api-client-react";
 import type { MandateResponse, ToolPolicy, PlatformPermissions } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Lock, Unlock, Eye, ChevronDown, ChevronRight, Globe, Briefcase, Scale, Server } from "lucide-react";
+import { Shield, Lock, Unlock, Eye, ChevronDown, ChevronRight, Globe, Briefcase, Scale, Server, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -214,7 +214,7 @@ function PermissionCard({ mandate }: { mandate: MandateResponse }) {
 }
 
 export default function PoaMapPage() {
-  const { data, isLoading } = useListMandates({ limit: 100 });
+  const { data, isLoading, isError, error } = useListMandates({ limit: 100 });
   const mandates = data?.items || [];
 
   const activeMandates = mandates.filter(m => m.status === "ACTIVE");
@@ -256,7 +256,13 @@ export default function PoaMapPage() {
         </Card>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Card className="bg-card border-border rounded-none shadow-none p-12 text-center">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <div className="font-mono text-destructive mb-2">Failed to load permission map</div>
+          <div className="font-mono text-xs text-muted-foreground">{error instanceof Error ? error.message : "Connection error"}</div>
+        </Card>
+      ) : isLoading ? (
         <div className="text-center text-primary font-mono uppercase tracking-widest animate-pulse py-12">Loading permission map...</div>
       ) : mandates.length === 0 ? (
         <Card className="bg-card border-border rounded-none shadow-none p-12 text-center">
