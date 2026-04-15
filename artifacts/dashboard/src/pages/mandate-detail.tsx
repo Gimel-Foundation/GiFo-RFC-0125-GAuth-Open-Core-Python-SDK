@@ -2,7 +2,7 @@ import { useGetMandate, useGetMandateHistory, useGetDelegationChain, useActivate
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, Play, Pause, ShieldOff, ShieldAlert, Activity, Link as LinkIcon, Database, ArrowLeft, ChevronDown, ChevronRight } from "lucide-react";
+import { Clock, Play, Pause, ShieldOff, ShieldAlert, Activity, Link as LinkIcon, Database, ArrowLeft, ChevronDown, ChevronRight, Plus, Zap, Ban, RotateCcw, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Link, useParams } from "wouter";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
@@ -333,24 +333,55 @@ export default function MandateDetailPage() {
                 </div>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0 overflow-y-auto flex-1">
+            <CardContent className="p-4 overflow-y-auto flex-1">
               {isHistoryLoading ? (
                 <div className="p-4 text-center text-muted-foreground font-mono text-xs">Loading logs...</div>
               ) : !history || history.length === 0 ? (
                 <div className="p-4 text-center text-muted-foreground font-mono text-xs">No audit logs found.</div>
               ) : (
-                <div className="divide-y divide-border">
-                  {history.map((log) => (
-                    <div key={log.log_id} className="p-3 text-xs font-mono space-y-1 hover:bg-secondary/30" data-testid={`audit-entry-${log.log_id}`}>
-                      <div className="flex justify-between items-start">
-                        <span className="text-primary font-bold uppercase">{log.operation_type}</span>
-                        <span className="text-muted-foreground">{format(new Date(log.created_at), 'MM-dd HH:mm')}</span>
-                      </div>
-                      <div className="text-muted-foreground truncate" title={log.caller_identity}>
-                        Actor: {log.caller_identity}
-                      </div>
-                    </div>
-                  ))}
+                <div className="relative">
+                  <div className="absolute left-[11px] top-2 bottom-2 w-px bg-border" />
+                  <div className="space-y-4">
+                    {history.map((log) => {
+                      const opIcon = (() => {
+                        const op = log.operation_type.toLowerCase();
+                        if (op.includes('create')) return <Plus className="h-3 w-3" />;
+                        if (op.includes('activate')) return <CheckCircle2 className="h-3 w-3" />;
+                        if (op.includes('suspend')) return <Pause className="h-3 w-3" />;
+                        if (op.includes('resume')) return <Play className="h-3 w-3" />;
+                        if (op.includes('revoke')) return <Ban className="h-3 w-3" />;
+                        if (op.includes('budget')) return <AlertTriangle className="h-3 w-3" />;
+                        if (op.includes('delegate')) return <Zap className="h-3 w-3" />;
+                        return <RotateCcw className="h-3 w-3" />;
+                      })();
+
+                      const opColor = (() => {
+                        const op = log.operation_type.toLowerCase();
+                        if (op.includes('create')) return 'bg-blue-500 text-white';
+                        if (op.includes('activate') || op.includes('resume')) return 'bg-emerald-500 text-white';
+                        if (op.includes('suspend')) return 'bg-amber-500 text-black';
+                        if (op.includes('revoke') || op.includes('budget_exceeded')) return 'bg-destructive text-white';
+                        return 'bg-primary text-primary-foreground';
+                      })();
+
+                      return (
+                        <div key={log.log_id} className="relative flex gap-3 items-start" data-testid={`audit-entry-${log.log_id}`}>
+                          <div className={cn("relative z-10 flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center", opColor)}>
+                            {opIcon}
+                          </div>
+                          <div className="flex-1 min-w-0 pb-1">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="font-mono text-xs font-bold uppercase text-foreground">{log.operation_type}</span>
+                              <span className="font-mono text-[10px] text-muted-foreground whitespace-nowrap">{format(new Date(log.created_at), 'MM-dd HH:mm')}</span>
+                            </div>
+                            <div className="font-mono text-[10px] text-muted-foreground truncate mt-0.5" title={log.caller_identity}>
+                              {log.caller_identity}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </CardContent>
