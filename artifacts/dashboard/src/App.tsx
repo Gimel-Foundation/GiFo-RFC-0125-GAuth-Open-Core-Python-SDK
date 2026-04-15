@@ -11,6 +11,8 @@ import MandatesPage from "@/pages/mandates";
 import MandateDetailPage from "@/pages/mandate-detail";
 import ProfilesPage from "@/pages/profiles";
 import CredentialsPage from "@/pages/credentials";
+import PoaMapPage from "@/pages/poa-map";
+import { ComponentType } from "react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,7 +23,7 @@ const queryClient = new QueryClient({
   }
 });
 
-function ProtectedRoute({ component: Component, ...rest }: any) {
+function ProtectedRoute({ component: Component }: { component: ComponentType }) {
   const { isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -32,7 +34,7 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
 
   return (
     <Layout>
-      <Component {...rest} />
+      <Component />
     </Layout>
   );
 }
@@ -46,6 +48,7 @@ function Router() {
       <Route path="/mandates/:id" component={() => <ProtectedRoute component={MandateDetailPage} />} />
       <Route path="/profiles" component={() => <ProtectedRoute component={ProfilesPage} />} />
       <Route path="/credentials" component={() => <ProtectedRoute component={CredentialsPage} />} />
+      <Route path="/poa-map" component={() => <ProtectedRoute component={PoaMapPage} />} />
       <Route component={NotFound} />
     </Switch>
   );

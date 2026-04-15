@@ -1,0 +1,240 @@
+import { useListMandates, useGetMandate, getGetMandateQueryKey } from "@workspace/api-client-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Shield, Lock, Unlock, Eye, ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+
+interface ScopeVerb {
+  action: string;
+  allowed: boolean;
+  requires_approval: boolean;
+}
+
+function PermissionCard({ mandate }: { mandate: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  const m = mandate as {
+    mandate_id: string;
+    status: string;
+    governance_profile: string;
+    parties: { subject: string; project_id: string };
+    scope: { core?: { verbs?: ScopeVerb[] }; restrictions?: Record<string, unknown>; platform_permissions?: Record<string, unknown> };
+    budget: { total_cents: number; consumed_cents: number; remaining_cents: number };
+  };
+
+  const verbs = m.scope?.core?.verbs || [];
+  const restrictions = m.scope?.restrictions || {};
+  const platformPerms = m.scope?.platform_permissions || {};
+  const allowedActions = verbs.filter(v => v.allowed).map(v => v.action);
+  const deniedActions = verbs.filter(v => !v.allowed).map(v => v.action);
+  const approvalRequired = verbs.filter(v => v.requires_approval).map(v => v.action);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "ACTIVE": return "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+      case "DRAFT": return "bg-blue-500/10 text-blue-500 border-blue-500/20";
+      case "SUSPENDED": return "bg-amber-500/10 text-amber-500 border-amber-500/20";
+      case "REVOKED": return "bg-destructive/10 text-destructive border-destructive/20";
+      default: return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  return (
+    <Card className="bg-card border-border rounded-none shadow-none">
+      <CardHeader
+        className="cursor-pointer border-b border-border bg-secondary/10 py-3"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+            <div>
+              <div className="font-mono text-sm font-bold text-primary" data-testid={`text-poa-mandate-${m.mandate_id}`}>{m.mandate_id.split('-')[0]}...</div>
+              <div className="font-mono text-xs text-muted-foreground">{m.parties.subject}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className={cn("rounded-none font-mono text-[10px]", getStatusColor(m.status))}>
+              {m.status}
+            </Badge>
+            <Badge variant="outline" className="rounded-none font-mono text-[10px] text-muted-foreground">
+              {m.governance_profile}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      {expanded && (
+        <CardContent className="p-4 space-y-4">
+          <div>
+            <div className="text-xs font-mono text-muted-foreground uppercase mb-2 flex items-center gap-1">
+              <Unlock className="h-3 w-3 text-emerald-500" /> Allowed Actions ({allowedActions.length})
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {allowedActions.length > 0 ? allowedActions.map(a => (
+                <Badge key={a} variant="outline" className="rounded-none font-mono text-[10px] text-emerald-500 border-emerald-500/30 bg-emerald-500/5" data-testid={`badge-allowed-${a}`}>
+                  {a}
+                </Badge>
+              )) : (
+                <span className="text-xs font-mono text-muted-foreground">None</span>
+              )}
+            </div>
+          </div>
+
+          {deniedActions.length > 0 && (
+            <div>
+              <div className="text-xs font-mono text-muted-foreground uppercase mb-2 flex items-center gap-1">
+                <Lock className="h-3 w-3 text-destructive" /> Denied Actions ({deniedActions.length})
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {deniedActions.map(a => (
+                  <Badge key={a} variant="outline" className="rounded-none font-mono text-[10px] text-destructive border-destructive/30 bg-destructive/5">
+                    {a}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {approvalRequired.length > 0 && (
+            <div>
+              <div className="text-xs font-mono text-muted-foreground uppercase mb-2 flex items-center gap-1">
+                <Eye className="h-3 w-3 text-amber-500" /> Requires Approval ({approvalRequired.length})
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {approvalRequired.map(a => (
+                  <Badge key={a} variant="outline" className="rounded-none font-mono text-[10px] text-amber-500 border-amber-500/30 bg-amber-500/5">
+                    {a}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {Object.keys(restrictions).length > 0 && (
+            <div className="border-t border-border pt-3">
+              <div className="text-xs font-mono text-muted-foreground uppercase mb-2">Scope Restrictions</div>
+              <div className="space-y-1">
+                {Object.entries(restrictions).map(([key, val]) => (
+                  <div key={key} className="flex justify-between font-mono text-xs">
+                    <span className="text-muted-foreground">{key}</span>
+                    <span>{String(val)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {Object.keys(platformPerms).length > 0 && (
+            <div className="border-t border-border pt-3">
+              <div className="text-xs font-mono text-muted-foreground uppercase mb-2">Platform Permissions</div>
+              <div className="grid grid-cols-2 gap-1">
+                {Object.entries(platformPerms).map(([key, val]) => (
+                  <div key={key} className="flex justify-between font-mono text-xs">
+                    <span className="text-muted-foreground">{key.replace(/_/g, ' ')}</span>
+                    {typeof val === 'boolean' ? (
+                      <Badge variant="outline" className={cn("rounded-none font-mono text-[9px]", val ? "text-emerald-500 border-emerald-500/30" : "text-destructive border-destructive/30")}>
+                        {val ? 'YES' : 'NO'}
+                      </Badge>
+                    ) : (
+                      <span>{String(val)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-border pt-3">
+            <div className="text-xs font-mono text-muted-foreground uppercase mb-2">Budget Allocation</div>
+            <div className="flex gap-4 font-mono text-xs">
+              <div>
+                <span className="text-muted-foreground">Total: </span>
+                <span className="font-bold">${(m.budget.total_cents / 100).toFixed(2)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Remaining: </span>
+                <span className="font-bold text-emerald-500">${(m.budget.remaining_cents / 100).toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+export default function PoaMapPage() {
+  const { data, isLoading } = useListMandates({ limit: 100 });
+  const mandates = data?.items || [];
+
+  const activeMandates = mandates.filter(m => m.status === "ACTIVE");
+  const suspendedMandates = mandates.filter(m => m.status === "SUSPENDED");
+  const draftMandates = mandates.filter(m => m.status === "DRAFT");
+  const terminalMandates = mandates.filter(m => ["REVOKED", "EXPIRED", "DELETED", "SUPERSEDED", "BUDGET_EXCEEDED"].includes(m.status));
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight uppercase font-mono text-foreground mb-1" data-testid="text-page-title">PoA Permission Map</h1>
+        <p className="text-muted-foreground font-mono text-sm">Flattened view of all mandate permissions, restrictions, and platform boundaries.</p>
+      </div>
+
+      <div className="grid grid-cols-4 gap-4">
+        <Card className="bg-card border-border rounded-none shadow-none border-t-2 border-t-emerald-500">
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold font-mono text-emerald-500">{activeMandates.length}</div>
+            <div className="text-xs font-mono text-muted-foreground uppercase">Active</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-border rounded-none shadow-none border-t-2 border-t-amber-500">
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold font-mono text-amber-500">{suspendedMandates.length}</div>
+            <div className="text-xs font-mono text-muted-foreground uppercase">Suspended</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-border rounded-none shadow-none border-t-2 border-t-blue-500">
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold font-mono text-blue-500">{draftMandates.length}</div>
+            <div className="text-xs font-mono text-muted-foreground uppercase">Draft</div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-border rounded-none shadow-none">
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold font-mono text-muted-foreground">{terminalMandates.length}</div>
+            <div className="text-xs font-mono text-muted-foreground uppercase">Terminal</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center text-primary font-mono uppercase tracking-widest animate-pulse py-12">Loading permission map...</div>
+      ) : mandates.length === 0 ? (
+        <Card className="bg-card border-border rounded-none shadow-none p-12 text-center">
+          <Shield className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+          <div className="font-mono text-muted-foreground">No mandates found in system.</div>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {activeMandates.length > 0 && (
+            <div className="space-y-2">
+              <h2 className="font-mono text-xs text-emerald-500 uppercase tracking-widest">Active Authorizations</h2>
+              {activeMandates.map(m => <PermissionCard key={m.mandate_id} mandate={m as unknown as Record<string, unknown>} />)}
+            </div>
+          )}
+          {suspendedMandates.length > 0 && (
+            <div className="space-y-2 mt-6">
+              <h2 className="font-mono text-xs text-amber-500 uppercase tracking-widest">Suspended Authorizations</h2>
+              {suspendedMandates.map(m => <PermissionCard key={m.mandate_id} mandate={m as unknown as Record<string, unknown>} />)}
+            </div>
+          )}
+          {draftMandates.length > 0 && (
+            <div className="space-y-2 mt-6">
+              <h2 className="font-mono text-xs text-blue-500 uppercase tracking-widest">Draft Authorizations</h2>
+              {draftMandates.map(m => <PermissionCard key={m.mandate_id} mandate={m as unknown as Record<string, unknown>} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

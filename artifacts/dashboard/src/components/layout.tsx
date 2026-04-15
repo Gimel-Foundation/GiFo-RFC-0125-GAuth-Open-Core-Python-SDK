@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Shield, LayoutDashboard, FileText, Users, Key, LogOut } from "lucide-react";
+import { Shield, LayoutDashboard, FileText, Users, Key, LogOut, Map } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useHealthCheck, useMgmtHealth } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { href: "/", label: "Overview", icon: LayoutDashboard },
     { href: "/mandates", label: "Mandates", icon: FileText },
+    { href: "/poa-map", label: "PoA Map", icon: Map },
     { href: "/profiles", label: "Profiles", icon: Users },
     { href: "/credentials", label: "Credentials", icon: Key },
   ];
