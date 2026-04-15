@@ -12,10 +12,15 @@ import { getGetMandateQueryKey, getGetMandateHistoryQueryKey } from "@workspace/
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
 import { useState } from "react";
 
-function DelegationNode({ entry, chain, currentId, depth }: { entry: { mandate_id: string; delegation_depth: number; delegate_agent_id: string; parent_mandate_id: string | null }; chain: typeof entry[]; currentId: string; depth: number }) {
+function DelegationNode({ entry, chain, currentId, currentStatus, depth }: { entry: { mandate_id: string; delegation_depth: number; delegate_agent_id: string; parent_mandate_id: string | null; budget_reserved_cents: number }; chain: typeof entry[]; currentId: string; currentStatus: string; depth: number }) {
   const [expanded, setExpanded] = useState(true);
   const children = chain.filter(c => c.parent_mandate_id === entry.mandate_id);
   const isCurrent = entry.mandate_id === currentId;
+
+  const nodeStatusColor = isCurrent
+    ? (currentStatus === "ACTIVE" ? "bg-emerald-500" : currentStatus === "SUSPENDED" ? "bg-amber-500" : currentStatus === "DRAFT" ? "bg-blue-500" : "bg-muted-foreground")
+    : "bg-primary/60";
+  const nodeStatusLabel = isCurrent ? currentStatus : "ANCESTOR";
 
   return (
     <div className="font-mono text-xs" style={{ paddingLeft: depth > 0 ? 20 : 0 }}>
@@ -32,22 +37,27 @@ function DelegationNode({ entry, chain, currentId, depth }: { entry: { mandate_i
         ) : (
           <div className="w-3" />
         )}
-        <div className="h-2 w-2 rounded-full bg-primary ring-2 ring-background" />
+        <div className={cn("h-2.5 w-2.5 rounded-full ring-2 ring-background flex-shrink-0", nodeStatusColor)} title={nodeStatusLabel} />
         <div className="flex-1">
-          <div className="font-bold text-primary">
-            {isCurrent ? (
-              <span data-testid="text-current-mandate">Current</span>
-            ) : (
-              <Link href={`/mandates/${entry.mandate_id}`} className="hover:underline" data-testid={`link-chain-${entry.mandate_id}`}>
-                {entry.mandate_id.split('-')[0]}...
-              </Link>
-            )}
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-primary">
+              {isCurrent ? (
+                <span data-testid="text-current-mandate">Current</span>
+              ) : (
+                <Link href={`/mandates/${entry.mandate_id}`} className="hover:underline" data-testid={`link-chain-${entry.mandate_id}`}>
+                  {entry.mandate_id.split('-')[0]}...
+                </Link>
+              )}
+            </span>
+            <Badge variant="outline" className={cn("rounded-none font-mono text-[8px] px-1 py-0", isCurrent ? "text-primary border-primary/30" : "text-muted-foreground border-border")}>
+              {nodeStatusLabel}
+            </Badge>
           </div>
-          <div className="text-muted-foreground">Depth: {entry.delegation_depth} | Agent: {entry.delegate_agent_id}</div>
+          <div className="text-muted-foreground">Depth: {entry.delegation_depth} | Agent: {entry.delegate_agent_id}{entry.budget_reserved_cents > 0 ? ` | Budget: $${(entry.budget_reserved_cents / 100).toFixed(0)}` : ''}</div>
         </div>
       </div>
       {expanded && children.map(child => (
-        <DelegationNode key={child.mandate_id} entry={child} chain={chain} currentId={currentId} depth={depth + 1} />
+        <DelegationNode key={child.mandate_id} entry={child} chain={chain} currentId={currentId} currentStatus={currentStatus} depth={depth + 1} />
       ))}
     </div>
   );
@@ -416,8 +426,8 @@ export default function MandateDetailPage() {
                 <div className="text-center text-muted-foreground font-mono text-xs">Root mandate. No delegation ancestors.</div>
               ) : (
                 <div className="space-y-1">
-                  {rootEntries.map((entry: { mandate_id: string; delegation_depth: number; delegate_agent_id: string; parent_mandate_id: string | null }) => (
-                    <DelegationNode key={entry.mandate_id} entry={entry} chain={delegationChain.chain} currentId={id} depth={0} />
+                  {rootEntries.map((entry: { mandate_id: string; delegation_depth: number; delegate_agent_id: string; parent_mandate_id: string | null; budget_reserved_cents: number }) => (
+                    <DelegationNode key={entry.mandate_id} entry={entry} chain={delegationChain.chain} currentId={id} currentStatus={mandate.status} depth={0} />
                   ))}
                 </div>
               )}

@@ -135,7 +135,7 @@ export default function MandatesPage() {
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Profile</th>
                   <th className="px-4 py-3 font-medium">Budget</th>
-                  <th className="px-4 py-3 font-medium">Updated</th>
+                  <th className="px-4 py-3 font-medium">Created</th>
                   <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
@@ -187,7 +187,7 @@ export default function MandatesPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">
-                          {format(new Date(mandate.updated_at), 'yyyy-MM-dd HH:mm')}
+                          {format(new Date(mandate.created_at), 'yyyy-MM-dd HH:mm')}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
