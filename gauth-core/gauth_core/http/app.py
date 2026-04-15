@@ -230,7 +230,7 @@ def create_app(
         response.headers["X-PEP-Interface-Version"] = "1.1"
         return response
 
-    @app.get("/.well-known/openid-credential-issuer")
+    @app.get("/gauth/.well-known/openid-credential-issuer")
     async def vci_issuer_metadata() -> JSONResponse:
         return JSONResponse(content=vci_issuer.get_issuer_metadata())
 

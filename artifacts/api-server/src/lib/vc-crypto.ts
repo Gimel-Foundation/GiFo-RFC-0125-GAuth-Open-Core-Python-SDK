@@ -30,12 +30,34 @@ function stableStringify(obj: unknown): string {
   return "{" + parts.join(",") + "}";
 }
 
+function computeSigningInput(
+  document: Record<string, unknown>,
+  proofOptions: Record<string, unknown>,
+): Buffer {
+  const docHash = crypto.createHash("sha256").update(stableStringify(document)).digest();
+  const optionsHash = crypto.createHash("sha256").update(stableStringify(proofOptions)).digest();
+  const combined = Buffer.concat([optionsHash, docHash]);
+  return crypto.createHash("sha256").update(combined).digest();
+}
+
 export function createDataIntegrityProof(
   vc: Record<string, unknown>,
   verificationMethod: string,
   challenge?: string,
 ): Record<string, unknown> {
-  const digest = crypto.createHash("sha256").update(stableStringify(vc)).digest();
+  const proofOptions: Record<string, unknown> = {
+    type: "DataIntegrityProof",
+    cryptosuite: ECDSA_CRYPTOSUITE,
+    created: new Date().toISOString(),
+    verificationMethod,
+    proofPurpose: "assertionMethod",
+  };
+
+  if (challenge) {
+    proofOptions.challenge = challenge;
+  }
+
+  const digest = computeSigningInput(vc, proofOptions);
 
   const { privateKey } = getOrCreateKeyPair();
   const signature = crypto.sign(null, digest, {
@@ -44,20 +66,7 @@ export function createDataIntegrityProof(
   });
   const proofValue = signature.toString("base64url");
 
-  const proof: Record<string, unknown> = {
-    type: "DataIntegrityProof",
-    cryptosuite: ECDSA_CRYPTOSUITE,
-    created: new Date().toISOString(),
-    verificationMethod,
-    proofPurpose: "assertionMethod",
-    proofValue,
-  };
-
-  if (challenge) {
-    proof.challenge = challenge;
-  }
-
-  return proof;
+  return { ...proofOptions, proofValue };
 }
 
 export function verifyDataIntegrityProof(
@@ -88,7 +97,12 @@ export function verifyDataIntegrityProof(
     if (k !== "proof") vcWithoutProof[k] = v;
   }
 
-  const digest = crypto.createHash("sha256").update(stableStringify(vcWithoutProof)).digest();
+  const proofOptions: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(proof)) {
+    if (k !== "proofValue") proofOptions[k] = v;
+  }
+
+  const digest = computeSigningInput(vcWithoutProof, proofOptions);
   const proofValue = proof.proofValue as string;
 
   const effectiveKey = verificationKey || getOrCreateKeyPair().publicKey;

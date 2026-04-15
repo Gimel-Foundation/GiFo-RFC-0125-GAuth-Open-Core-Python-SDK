@@ -145,6 +145,16 @@ def _canonical_hash(data: dict[str, Any]) -> bytes:
     return hashlib.sha256(canonical.encode()).digest()
 
 
+def _compute_signing_input(
+    document: dict[str, Any],
+    proof_options: dict[str, Any],
+) -> bytes:
+    doc_hash = _canonical_hash(document)
+    options_hash = _canonical_hash(proof_options)
+    combined = options_hash + doc_hash
+    return hashlib.sha256(combined).digest()
+
+
 def create_data_integrity_proof(
     vc: dict[str, Any],
     verification_method: str = "",
@@ -154,8 +164,18 @@ def create_data_integrity_proof(
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
+    proof_options: dict[str, Any] = {
+        "type": "DataIntegrityProof",
+        "cryptosuite": ECDSA_CRYPTOSUITE,
+        "created": now.isoformat(),
+        "verificationMethod": verification_method,
+        "proofPurpose": "assertionMethod",
+    }
+    if challenge:
+        proof_options["challenge"] = challenge
+
     if not proof_value:
-        digest = _canonical_hash(vc)
+        digest = _compute_signing_input(vc, proof_options)
         if signing_key is not None:
             from cryptography.hazmat.primitives.asymmetric import ec
             from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
@@ -166,18 +186,8 @@ def create_data_integrity_proof(
         else:
             proof_value = digest.hex()
 
-    proof: dict[str, Any] = {
-        "type": "DataIntegrityProof",
-        "cryptosuite": ECDSA_CRYPTOSUITE,
-        "created": now.isoformat(),
-        "verificationMethod": verification_method,
-        "proofPurpose": "assertionMethod",
-        "proofValue": proof_value,
-    }
-
-    if challenge:
-        proof["challenge"] = challenge
-
+    proof = dict(proof_options)
+    proof["proofValue"] = proof_value
     return proof
 
 
@@ -197,7 +207,8 @@ def verify_data_integrity_proof(
         return {"verified": False, "reason": f"Unsupported cryptosuite: {suite}"}
 
     vc_without_proof = {k: v for k, v in vc.items() if k != "proof"}
-    digest = _canonical_hash(vc_without_proof)
+    proof_options = {k: v for k, v in proof.items() if k != "proofValue"}
+    digest = _compute_signing_input(vc_without_proof, proof_options)
     proof_value = proof.get("proofValue", "")
 
     if verification_key is not None:

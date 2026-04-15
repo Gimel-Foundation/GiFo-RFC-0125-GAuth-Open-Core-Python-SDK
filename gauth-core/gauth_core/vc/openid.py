@@ -414,6 +414,13 @@ class OpenID4VPVerifier:
                 vc_key = resolved
             if vc_key is None:
                 vc_key = verification_key
+            if vc_key is None:
+                session["status"] = "rejected"
+                return {
+                    "verified": False,
+                    "error": "proof_verification_failed",
+                    "proof_error": "No trusted issuer key available for VC verification",
+                }
 
             vc_verify = verify_data_integrity_proof(vc, verification_key=vc_key)
             if not vc_verify["verified"]:
@@ -475,6 +482,14 @@ class OpenID4VPVerifier:
             resolved = self._trusted_issuers.resolve(vm)
             if resolved is not None:
                 effective_key = resolved
+
+        if effective_key is None:
+            session["status"] = "rejected"
+            return {
+                "verified": False,
+                "error": "proof_verification_failed",
+                "proof_error": "No trusted issuer key available for verification",
+            }
 
         verification_result = verify_data_integrity_proof(vc, verification_key=effective_key)
         if not verification_result["verified"]:
