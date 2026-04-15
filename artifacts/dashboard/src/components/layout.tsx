@@ -26,7 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <div className="w-64 border-r border-border bg-sidebar flex flex-col">
         <div className="h-14 border-b border-border flex items-center px-4 gap-2 text-primary font-bold tracking-tight">
-          <img src={`${import.meta.env.BASE_URL}gimel-logo.png`} alt="Gimel" className="h-6 w-6" />
+          <img src={`${import.meta.env.BASE_URL}gimel-logo.png`} alt="Gimel" className="h-6 w-6 rounded-full ring-1 ring-white/20" />
           <span className="uppercase tracking-widest text-sm">GAuth Control</span>
         </div>
         
