@@ -22,6 +22,10 @@ tags:
     description: Governance profile queries
   - name: mgmt-health
     description: Management API health and version discovery
+  - name: vci
+    description: OpenID4VCI credential issuance
+  - name: vp
+    description: OpenID4VP presentation verification
 paths:
   /healthz:
     get:
@@ -517,6 +521,198 @@ paths:
                 $ref: "#/components/schemas/DelegationChainResponse"
         "404":
           $ref: "#/components/responses/ManagementError"
+  /gauth/.well-known/openid-credential-issuer:
+    get:
+      operationId: vciIssuerMetadata
+      tags: [vci]
+      summary: OpenID4VCI issuer metadata
+      description: Returns OpenID4VCI credential issuer metadata including supported credential types and endpoints
+      responses:
+        "200":
+          description: Issuer metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VCIIssuerMetadata"
+  /gauth/vci/v1/offers:
+    post:
+      operationId: vciCreateOffer
+      tags: [vci]
+      summary: Create credential offer
+      description: Creates a credential offer with a pre-authorized code for subsequent token exchange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VCIOfferRequest"
+      responses:
+        "201":
+          description: Credential offer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VCIOfferResponse"
+  /gauth/vci/v1/token:
+    post:
+      operationId: vciToken
+      tags: [vci]
+      summary: Exchange pre-authorized code for access token
+      description: Token endpoint for pre-authorized code grant. Returns access token and c_nonce for credential request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pre-authorized_code
+              properties:
+                pre-authorized_code:
+                  type: string
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VCITokenResponse"
+        "400":
+          description: Invalid grant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VCIError"
+  /gauth/vci/v1/credentials:
+    post:
+      operationId: vciCredential
+      tags: [vci]
+      summary: Issue credential
+      description: Issues a W3C Verifiable Credential with Data Integrity Proof. Access token via Authorization header or body.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                c_nonce:
+                  type: string
+                credential_type:
+                  type: string
+                  default: GAuthPoACredential
+                proof:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Credential issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VCICredentialResponse"
+        "400":
+          description: Invalid token or nonce
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VCIError"
+  /gauth/vp/v1/presentation-requests:
+    post:
+      operationId: vpCreateRequest
+      tags: [vp]
+      summary: Create presentation request
+      description: Creates an OpenID4VP presentation request with nonce binding for verifiable credential presentation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                credential_types:
+                  type: array
+                  items:
+                    type: string
+                  default: [GAuthPoACredential]
+                purpose:
+                  type: string
+                  default: GAuth PoA verification
+      responses:
+        "201":
+          description: Presentation request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VPPresentationRequest"
+  /gauth/vp/v1/presentation-requests/{sessionId}/response:
+    post:
+      operationId: vpSubmitPresentation
+      tags: [vp]
+      summary: Submit presentation response
+      description: Submits a verifiable presentation for verification. Validates Data Integrity Proof, nonce binding, and credential status.
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - vp_token
+              properties:
+                vp_token:
+                  type: object
+                  additionalProperties: true
+                presentation_submission:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Presentation verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VPVerificationResult"
+        "400":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VPVerificationResult"
+  /gauth/vp/v1/presentation-requests/{sessionId}:
+    get:
+      operationId: vpSessionStatus
+      tags: [vp]
+      summary: Get presentation session status
+      description: Returns the current status of a presentation verification session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, verified, rejected, expired]
+        "404":
+          description: Session not found
 components:
   securitySchemes:
     bearerAuth:
@@ -1281,3 +1477,191 @@ components:
               type: boolean
             audit_logging:
               type: boolean
+    VCIIssuerMetadata:
+      type: object
+      required:
+        - credential_issuer
+        - credential_endpoint
+        - token_endpoint
+        - credential_configurations_supported
+      properties:
+        credential_issuer:
+          type: string
+        credential_endpoint:
+          type: string
+        token_endpoint:
+          type: string
+        credential_configurations_supported:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              format:
+                type: string
+              scope:
+                type: string
+              cryptographic_binding_methods_supported:
+                type: array
+                items:
+                  type: string
+              credential_signing_alg_values_supported:
+                type: array
+                items:
+                  type: string
+              credential_definition:
+                type: object
+                properties:
+                  type:
+                    type: array
+                    items:
+                      type: string
+        display:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              locale:
+                type: string
+    VCIOfferRequest:
+      type: object
+      properties:
+        mandate:
+          type: object
+          additionalProperties: true
+        mandate_id:
+          type: string
+        credential_type:
+          type: string
+          default: GAuthPoACredential
+    VCIOfferResponse:
+      type: object
+      required:
+        - offer_id
+        - credential_issuer
+        - credential_configuration_ids
+        - grants
+      properties:
+        offer_id:
+          type: string
+        credential_issuer:
+          type: string
+        credential_configuration_ids:
+          type: array
+          items:
+            type: string
+        grants:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              pre-authorized_code:
+                type: string
+    VCITokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+        - c_nonce
+        - c_nonce_expires_in
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+        c_nonce:
+          type: string
+        c_nonce_expires_in:
+          type: integer
+    VCICredentialResponse:
+      type: object
+      required:
+        - format
+        - credential
+        - c_nonce
+        - c_nonce_expires_in
+      properties:
+        format:
+          type: string
+          enum: [jwt_vc_json]
+        credential:
+          type: object
+          additionalProperties: true
+        c_nonce:
+          type: string
+        c_nonce_expires_in:
+          type: integer
+    VCIError:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
+        c_nonce_error:
+          type: string
+    VPPresentationRequest:
+      type: object
+      required:
+        - session_id
+        - presentation_definition
+        - nonce
+        - response_uri
+        - response_mode
+      properties:
+        session_id:
+          type: string
+        presentation_definition:
+          type: object
+          properties:
+            id:
+              type: string
+            input_descriptors:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            format:
+              type: object
+              additionalProperties: true
+        nonce:
+          type: string
+        nonce_expires_in:
+          type: integer
+        response_uri:
+          type: string
+        response_mode:
+          type: string
+          enum: [direct_post]
+    VPVerificationResult:
+      type: object
+      required:
+        - verified
+      properties:
+        verified:
+          type: boolean
+        session_id:
+          type: string
+        credential_types_verified:
+          type: array
+          items:
+            type: string
+        proof_mode:
+          type: string
+        cryptosuite:
+          type: string
+        error:
+          type: string
+        proof_error:
+          type: string
+        nonce_error:
+          type: string
+        revocation_reason:
+          type: string

@@ -18,11 +18,15 @@ from gauth_core.pep.engine import PEPEngine
 from gauth_core.schema.enums import ERROR_CODE_HTTP_STATUS, ManagementErrorCode
 from gauth_core.storage.base import MandateRepository
 from gauth_core.storage.memory import InMemoryMandateRepository
+from gauth_core.vc.openid import OpenID4VCIssuer, OpenID4VPVerifier
+from gauth_core.vc.status_list import BitstringStatusList
 
 
 def create_app(
     repository: MandateRepository | None = None,
     adapter_registry: AdapterRegistry | None = None,
+    signing_key: Any | None = None,
+    status_list: BitstringStatusList | None = None,
 ) -> Any:
     if not HAS_FASTAPI:
         raise ImportError(
@@ -33,6 +37,8 @@ def create_app(
     repo = repository or InMemoryMandateRepository()
     mgmt_service = MandateManagementService(repo)
     pep_engine = PEPEngine(repository=repo, adapter_registry=adapter_registry)
+    vci_issuer = OpenID4VCIssuer(signing_key=signing_key)
+    vp_verifier = OpenID4VPVerifier(status_list=status_list)
 
     app = FastAPI(
         title="GAuth Open Core",
@@ -222,5 +228,79 @@ def create_app(
         response = JSONResponse(content=result)
         response.headers["X-PEP-Interface-Version"] = "1.1"
         return response
+
+    @app.get("/.well-known/openid-credential-issuer")
+    async def vci_issuer_metadata() -> JSONResponse:
+        return JSONResponse(content=vci_issuer.get_issuer_metadata())
+
+    @app.post("/gauth/vci/v1/offers")
+    async def vci_create_offer(request: Request) -> JSONResponse:
+        body = await request.json()
+        mandate_id = body.get("mandate_id", "")
+        mandate = None
+        if mandate_id:
+            try:
+                mandate = mgmt_service.get_mandate(mandate_id)
+            except ManagementError:
+                raise HTTPException(status_code=404, detail="Mandate not found")
+        result = vci_issuer.create_credential_offer(
+            mandate=mandate or body.get("mandate", {}),
+            credential_type=body.get("credential_type", "GAuthPoACredential"),
+        )
+        return JSONResponse(status_code=201, content=result)
+
+    @app.post("/gauth/vci/v1/token")
+    async def vci_token(request: Request) -> JSONResponse:
+        body = await request.json()
+        result = vci_issuer.token_endpoint(body.get("pre-authorized_code", ""))
+        if "error" in result:
+            return JSONResponse(status_code=400, content=result)
+        return JSONResponse(content=result)
+
+    @app.post("/gauth/vci/v1/credentials")
+    async def vci_credential(request: Request) -> JSONResponse:
+        body = await request.json()
+        auth_header = request.headers.get("authorization", "")
+        access_token = ""
+        if auth_header.startswith("Bearer "):
+            access_token = auth_header[7:]
+        elif body.get("access_token"):
+            access_token = body["access_token"]
+        result = vci_issuer.credential_endpoint(
+            access_token=access_token,
+            c_nonce=body.get("c_nonce", ""),
+            credential_type=body.get("credential_type", "GAuthPoACredential"),
+            proof=body.get("proof"),
+        )
+        if "error" in result:
+            return JSONResponse(status_code=400, content=result)
+        return JSONResponse(content=result)
+
+    @app.post("/gauth/vp/v1/presentation-requests")
+    async def vp_create_request(request: Request) -> JSONResponse:
+        body = await request.json()
+        result = vp_verifier.create_presentation_request(
+            credential_types=body.get("credential_types"),
+            purpose=body.get("purpose", "GAuth PoA verification"),
+        )
+        return JSONResponse(status_code=201, content=result)
+
+    @app.post("/gauth/vp/v1/presentation-requests/{session_id}/response")
+    async def vp_submit_presentation(session_id: str, request: Request) -> JSONResponse:
+        body = await request.json()
+        result = vp_verifier.submit_presentation(
+            session_id=session_id,
+            vp_token=body.get("vp_token", ""),
+            presentation_submission=body.get("presentation_submission"),
+        )
+        status_code = 200 if result.get("verified") else 400
+        return JSONResponse(status_code=status_code, content=result)
+
+    @app.get("/gauth/vp/v1/presentation-requests/{session_id}")
+    async def vp_session_status(session_id: str) -> JSONResponse:
+        result = vp_verifier.get_session_status(session_id)
+        if "error" in result:
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
 
     return app

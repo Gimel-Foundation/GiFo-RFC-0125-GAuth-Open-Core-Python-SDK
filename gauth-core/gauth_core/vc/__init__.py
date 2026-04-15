@@ -17,8 +17,11 @@ Data Model v2.0.  Current scope:
   Revocation checks are local-object based (no remote fetch).
 - **SD-JWT**: Selective disclosure with SHA-256 digests.  Claims are
   redacted from the issuer payload; verification is fail-closed.
-- **OpenID4VCI/VP**: Stub implementations for credential offer and
-  presentation definition structures.
+- **OpenID4VCI**: Full credential issuance via pre-authorized code flow
+  with nonce lifecycle management, real VC minting via poa_to_vc +
+  ecdsa-rdfc-2019 Data Integrity Proofs.
+- **OpenID4VP**: Presentation verification with Data Integrity Proof
+  validation, Bitstring Status List revocation checks, and nonce binding.
 
 Production deployments requiring full network DID resolution, remote
 status list fetching, or HSM-backed key management should layer
@@ -29,4 +32,4 @@ from gauth_core.vc.serializer import poa_to_vc, vc_to_jwt_payload
 from gauth_core.vc.did import resolve_did_web, resolve_did_key, create_did_key
 from gauth_core.vc.status_list import BitstringStatusList
 from gauth_core.vc.sd_jwt import create_sd_jwt, verify_sd_jwt_disclosures
-from gauth_core.vc.openid import OpenID4VCIStub, OpenID4VPStub
+from gauth_core.vc.openid import OpenID4VCIssuer, OpenID4VPVerifier, OpenID4VCIStub, OpenID4VPStub

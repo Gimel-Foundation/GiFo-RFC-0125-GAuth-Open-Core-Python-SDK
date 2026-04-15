@@ -68,7 +68,7 @@ from gauth_core.vc.serializer import (
 from gauth_core.vc.did import create_did_key, resolve_did, resolve_did_key, resolve_did_web
 from gauth_core.vc.status_list import BitstringStatusList
 from gauth_core.vc.sd_jwt import create_sd_jwt, verify_sd_jwt_disclosures
-from gauth_core.vc.openid import OpenID4VCIStub, OpenID4VPStub
+from gauth_core.vc.openid import OpenID4VCIssuer, OpenID4VPVerifier, OpenID4VCIStub, OpenID4VPStub
 
 
 def _make_license_token(body="test_body", secret="test_secret"):
@@ -986,61 +986,423 @@ class TestBitstringStatusList:
             sl.get_status(-1)
 
 
+def _make_test_mandate():
+    return {
+        "mandate_id": "mdt_vci_test",
+        "status": "ACTIVE",
+        "parties": {
+            "subject": "agent-vci",
+            "customer_id": "cust-1",
+            "project_id": "proj-1",
+            "issued_by": "admin",
+        },
+        "scope": {
+            "governance_profile": "standard",
+            "phase": "build",
+            "core_verbs": {
+                "file.read": {"allowed": True},
+                "file.write": {"allowed": True},
+            },
+            "allowed_sectors": ["fintech"],
+            "allowed_regions": ["EU"],
+            "allowed_decisions": ["approve"],
+        },
+        "requirements": {
+            "approval_mode": "supervised",
+            "budget": {"total_cents": 5000},
+        },
+        "budget_state": {
+            "total_cents": 5000,
+            "remaining_cents": 4500,
+            "consumed_cents": 500,
+        },
+        "scope_checksum": "abc123",
+        "activated_at": "2026-01-01T00:00:00+00:00",
+        "expires_at": "2026-12-31T23:59:59+00:00",
+    }
+
+
 class TestOpenID4VCI:
-    """CT-CF-018 — OpenID4VCI stub."""
+    """CT-CF-018 — OpenID4VCI credential issuance."""
 
     def test_ct_cf_018_credential_offer(self):
-        stub = OpenID4VCIStub()
-        offer = stub.create_credential_offer()
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
         assert "credential_issuer" in offer
         assert "credential_configuration_ids" in offer
         assert "GAuthPoACredential" in offer["credential_configuration_ids"]
+        grants = offer["grants"]
+        grant_key = "urn:ietf:params:oauth:grant-type:pre-authorized_code"
+        assert grant_key in grants
+        assert "pre-authorized_code" in grants[grant_key]
 
     def test_ct_cf_018b_issuer_metadata(self):
-        stub = OpenID4VCIStub()
-        meta = stub.get_issuer_metadata()
+        issuer = OpenID4VCIssuer()
+        meta = issuer.get_issuer_metadata()
         assert "GAuthPoACredential" in meta["credential_configurations_supported"]
+        assert "token_endpoint" in meta
+        assert "credential_endpoint" in meta
 
-    def test_ct_cf_018c_token_and_credential_endpoints(self):
-        stub = OpenID4VCIStub()
-        tok = stub.token_endpoint("code_123")
+    def test_ct_cf_018c_full_issuance_roundtrip(self):
+        issuer = OpenID4VCIssuer()
+        mandate = _make_test_mandate()
+        offer = issuer.create_credential_offer(mandate=mandate)
+        pre_auth_code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+
+        tok = issuer.token_endpoint(pre_auth_code)
         assert "access_token" in tok
-        cred = stub.credential_endpoint(tok["access_token"])
-        assert "credential" in cred
+        assert "c_nonce" in tok
+        assert tok["token_type"] == "Bearer"
+
+        cred_resp = issuer.credential_endpoint(
+            access_token=tok["access_token"],
+            c_nonce=tok["c_nonce"],
+        )
+        assert "credential" in cred_resp
+        assert cred_resp["format"] == "jwt_vc_json"
+
+        vc = cred_resp["credential"]
+        assert isinstance(vc, dict)
+        assert "VerifiableCredential" in vc["type"]
+        assert "GAuthPoACredential" in vc["type"]
+        assert "proof" in vc
+        assert vc["proof"]["type"] == "DataIntegrityProof"
+        assert vc["proof"]["cryptosuite"] == "ecdsa-rdfc-2019"
+
+        result = verify_data_integrity_proof(vc)
+        assert result["verified"] is True
+
+    def test_ct_cf_018d_pre_auth_code_single_use(self):
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+
+        first = issuer.token_endpoint(code)
+        assert "access_token" in first
+
+        second = issuer.token_endpoint(code)
+        assert "error" in second
+        assert second["error"] == "invalid_grant"
+
+    def test_ct_cf_018e_unknown_code_rejected(self):
+        issuer = OpenID4VCIssuer()
+        result = issuer.token_endpoint("code_nonexistent")
+        assert "error" in result
+        assert result["error"] == "invalid_grant"
+
+    def test_ct_cf_018f_invalid_token_rejected(self):
+        issuer = OpenID4VCIssuer()
+        result = issuer.credential_endpoint("tok_nonexistent")
+        assert "error" in result
+        assert result["error"] == "invalid_token"
+
+    def test_ct_cf_018g_nonce_replay_rejected(self):
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        c_nonce = tok["c_nonce"]
+
+        first = issuer.credential_endpoint(tok["access_token"], c_nonce=c_nonce)
+        assert "credential" in first
+
+        second_nonce = first["c_nonce"]
+        issuer.credential_endpoint(tok["access_token"], c_nonce=second_nonce)
+
+        replay = issuer.credential_endpoint(tok["access_token"], c_nonce=second_nonce)
+        assert "error" in replay
+        assert replay["c_nonce_error"] == "nonce_replay"
+
+    def test_ct_cf_018h_ecdsa_issuance_roundtrip(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+
+        issuer = OpenID4VCIssuer(signing_key=private_key)
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(tok["access_token"], c_nonce=tok["c_nonce"])
+
+        vc = cred_resp["credential"]
+        result = verify_data_integrity_proof(vc, verification_key=public_key)
+        assert result["verified"] is True
+        assert result["mode"] == "ecdsa"
+
+    def test_ct_cf_018i_issuance_with_status_list(self):
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(
+            tok["access_token"],
+            c_nonce=tok["c_nonce"],
+            status_list_credential="https://gauth.example/status/1",
+            status_list_index=42,
+        )
+
+        vc = cred_resp["credential"]
+        assert "credentialStatus" in vc
+        assert vc["credentialStatus"]["statusListIndex"] == 42
+        assert vc["credentialStatus"]["type"] == "BitstringStatusListEntry"
 
 
 class TestOpenID4VP:
-    """CT-CF-019 — OpenID4VP stub."""
+    """CT-CF-019 — OpenID4VP presentation verification."""
+
+    def _issue_vc(self, signing_key=None, status_list_credential="", status_list_index=0):
+        issuer = OpenID4VCIssuer(signing_key=signing_key)
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(
+            tok["access_token"], c_nonce=tok["c_nonce"],
+            status_list_credential=status_list_credential,
+            status_list_index=status_list_index,
+        )
+        return cred_resp["credential"]
 
     def test_ct_cf_019_presentation_request(self):
-        stub = OpenID4VPStub()
-        req = stub.create_presentation_request()
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
         assert "presentation_definition" in req
         assert "nonce" in req
         assert "session_id" in req
+        assert "nonce_expires_in" in req
 
-    def test_ct_cf_019b_submit_and_verify(self):
-        stub = OpenID4VPStub()
-        req = stub.create_presentation_request()
+    def test_ct_cf_019b_full_presentation_roundtrip(self):
+        vc = self._issue_vc()
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
         session_id = req["session_id"]
-        result = stub.submit_presentation(session_id, vp_token="token.payload.sig")
+
+        result = verifier.submit_presentation(session_id, vp_token=vc)
         assert result["verified"] is True
+        assert result["session_id"] == session_id
+        assert "GAuthPoACredential" in result["credential_types_verified"]
 
-    def test_ct_cf_019c_session_status(self):
-        stub = OpenID4VPStub()
-        req = stub.create_presentation_request()
+    def test_ct_cf_019c_session_status_tracking(self):
+        vc = self._issue_vc()
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
         session_id = req["session_id"]
-        status = stub.get_session_status(session_id)
+        status = verifier.get_session_status(session_id)
         assert status["status"] == "pending"
 
-        stub.submit_presentation(session_id, vp_token="tok")
-        status = stub.get_session_status(session_id)
+        verifier.submit_presentation(session_id, vp_token=vc)
+        status = verifier.get_session_status(session_id)
         assert status["status"] == "verified"
 
-    def test_ct_cf_019d_unknown_session(self):
-        stub = OpenID4VPStub()
-        result = stub.submit_presentation("nonexistent", vp_token="tok")
+    def test_ct_cf_019d_unknown_session_rejected(self):
+        verifier = OpenID4VPVerifier()
+        result = verifier.submit_presentation("nonexistent", vp_token={})
         assert result["verified"] is False
+        assert result["error"] == "session_not_found"
+
+    def test_ct_cf_019e_tampered_vc_rejected(self):
+        vc = self._issue_vc()
+        vc["credentialSubject"]["mandate_id"] = "TAMPERED"
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is False
+        assert result["error"] == "proof_verification_failed"
+
+    def test_ct_cf_019f_ecdsa_presentation_roundtrip(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+
+        vc = self._issue_vc(signing_key=private_key)
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(
+            req["session_id"], vp_token=vc, verification_key=public_key,
+        )
+        assert result["verified"] is True
+        assert result["proof_mode"] == "ecdsa"
+
+    def test_ct_cf_019g_ecdsa_wrong_key_rejected(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        sign_key = ec.generate_private_key(ec.SECP256R1())
+        wrong_key = ec.generate_private_key(ec.SECP256R1()).public_key()
+
+        vc = self._issue_vc(signing_key=sign_key)
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(
+            req["session_id"], vp_token=vc, verification_key=wrong_key,
+        )
+        assert result["verified"] is False
+        assert result["error"] == "proof_verification_failed"
+
+    def test_ct_cf_019h_nonce_replay_rejected(self):
+        vc1 = self._issue_vc()
+        vc2 = self._issue_vc()
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        session_id = req["session_id"]
+
+        first = verifier.submit_presentation(session_id, vp_token=vc1)
+        assert first["verified"] is True
+
+        req2 = verifier.create_presentation_request()
+        verifier.submit_presentation(req2["session_id"], vp_token=vc2)
+        result = verifier.submit_presentation(req2["session_id"], vp_token=vc2)
+        assert result["verified"] is False
+
+    def test_ct_cf_019i_revoked_credential_rejected(self):
+        sl = BitstringStatusList(size=1024)
+        sl.set_status(7, True, reason="compromised key")
+
+        vc = self._issue_vc(
+            status_list_credential="https://gauth.example/status/1",
+            status_list_index=7,
+        )
+
+        verifier = OpenID4VPVerifier(status_list=sl)
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is False
+        assert result["error"] == "credential_revoked"
+        assert result["revocation_reason"] == "compromised key"
+
+    def test_ct_cf_019j_non_revoked_credential_accepted(self):
+        sl = BitstringStatusList(size=1024)
+
+        vc = self._issue_vc(
+            status_list_credential="https://gauth.example/status/1",
+            status_list_index=7,
+        )
+
+        verifier = OpenID4VPVerifier(status_list=sl)
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is True
+
+    def test_ct_cf_019k_string_vp_token_rejected(self):
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token="raw.jwt.string")
+        assert result["verified"] is False
+        assert result["error"] == "vp_token_must_be_vc_object"
+
+
+class TestOpenID4VCIVPIntegration:
+    """CT-CF-034–038 — Full VCI→VP end-to-end integration."""
+
+    def test_ct_cf_034_issue_then_present_hash_integrity(self):
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(tok["access_token"], c_nonce=tok["c_nonce"])
+        vc = cred_resp["credential"]
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is True
+        assert result["proof_mode"] == "hash-integrity"
+
+    def test_ct_cf_035_issue_then_present_ecdsa(self):
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+
+        issuer = OpenID4VCIssuer(signing_key=private_key)
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(tok["access_token"], c_nonce=tok["c_nonce"])
+        vc = cred_resp["credential"]
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(
+            req["session_id"], vp_token=vc, verification_key=public_key,
+        )
+        assert result["verified"] is True
+        assert result["proof_mode"] == "ecdsa"
+        assert result["cryptosuite"] == "ecdsa-rdfc-2019"
+
+    def test_ct_cf_036_issue_then_present_with_revocation_check(self):
+        sl = BitstringStatusList(size=1024)
+
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(
+            tok["access_token"], c_nonce=tok["c_nonce"],
+            status_list_credential="https://gauth.example/status/1",
+            status_list_index=10,
+        )
+        vc = cred_resp["credential"]
+
+        verifier = OpenID4VPVerifier(status_list=sl)
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is True
+
+        sl.set_status(10, True, reason="mandate revoked")
+        req2 = verifier.create_presentation_request()
+        result2 = verifier.submit_presentation(req2["session_id"], vp_token=vc)
+        assert result2["verified"] is False
+        assert result2["error"] == "credential_revoked"
+
+    def test_ct_cf_037_nonce_store_cleanup(self):
+        from gauth_core.vc.openid import _NonceStore
+        store = _NonceStore(default_ttl=0)
+        n1, _ = store.issue(ttl=0)
+        time.sleep(0.01)
+        cleaned = store.cleanup_expired()
+        assert cleaned >= 1
+        result = store.validate_and_consume(n1)
+        assert result["valid"] is False
+
+    def test_ct_cf_038_backward_compat_aliases(self):
+        assert OpenID4VCIStub is OpenID4VCIssuer
+        assert OpenID4VPStub is OpenID4VPVerifier
+
+    def test_ct_cf_039_mandatory_nonce_enforcement(self):
+        """CT-CF-039: credential issuance without c_nonce must be rejected."""
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+
+        result = issuer.credential_endpoint(tok["access_token"])
+        assert "error" in result
+        assert result["error"] == "invalid_proof"
+        assert result["c_nonce_error"] == "nonce_missing"
+
+    def test_ct_cf_040_vp_type_mismatch_rejected(self):
+        """CT-CF-040: VP with wrong credential type must be rejected."""
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(tok["access_token"], c_nonce=tok["c_nonce"])
+        vc = cred_resp["credential"]
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request(credential_types=["SomeOtherCredential"])
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is False
+        assert result["error"] == "credential_type_mismatch"
+        status = verifier.get_session_status(req["session_id"])
+        assert status["status"] == "rejected"
 
 
 class TestVCModuleImports:
@@ -1056,12 +1418,16 @@ class TestVCModuleImports:
             BitstringStatusList,
             create_sd_jwt,
             verify_sd_jwt_disclosures,
+            OpenID4VCIssuer,
+            OpenID4VPVerifier,
             OpenID4VCIStub,
             OpenID4VPStub,
         )
         assert callable(poa_to_vc)
         assert callable(resolve_did_web)
         assert callable(create_sd_jwt)
+        assert OpenID4VCIStub is OpenID4VCIssuer
+        assert OpenID4VPStub is OpenID4VPVerifier
 
 
 class TestVCSchemaTypes:

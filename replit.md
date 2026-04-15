@@ -78,6 +78,18 @@ Additionally contains the **GAuth Open Core Python SDK** (`gauth-core/`) — a P
 | GET | /profiles/:profile/ceilings | Profile ceiling table |
 | GET | /health | Version and feature flags |
 
+### VCI/VP Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /.well-known/openid-credential-issuer | Issuer metadata |
+| POST | /gauth/vci/v1/offers | Create credential offer |
+| POST | /gauth/vci/v1/token | Exchange pre-auth code for token |
+| POST | /gauth/vci/v1/credentials | Issue W3C VC with proof |
+| POST | /gauth/vp/v1/presentation-requests | Create presentation request |
+| POST | /gauth/vp/v1/presentation-requests/:id/response | Submit VP for verification |
+| GET | /gauth/vp/v1/presentation-requests/:id | Session status |
+
 ## GAuth PEP Engine (TypeScript)
 
 - **Location**: `artifacts/api-server/src/lib/pep-service.ts` (engine), `artifacts/api-server/src/routes/gauth-pep.ts` (routes)
@@ -115,7 +127,7 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Optional**: FastAPI (install with `pip install gauth-core[http]`)
 - **License**: MPL 2.0 (see Python SDK note below)
 - **Test command**: `cd gauth-core && python -m pytest tests/ -v`
-- **Tests**: 307 tests across 9 test modules
+- **Tests**: 325 tests across 9 test modules
 
 ### Submodules (10 total)
 
@@ -129,8 +141,8 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 | `adapters/` | Protected adapter system (9 slots, tariff gate, Type C Ed25519 manifest verification, trust validation) |
 | `mgmt/` | Mandate lifecycle service (RFC 0118) with delegation approval gate + PoA map summary |
 | `pep/` | 16-check enforcement engine, two-pass delegation, OAuth pre-check, full CHK-09 constraint eval (RFC 0117) |
-| `vc/` | W3C VC translation layer: PoA→VC serialization, DID resolution, Data Integrity Proofs, SD-JWT, Bitstring Status List, OpenID4VCI/VP stubs |
-| `http/` | Optional FastAPI binding (17 mgmt + 4 PEP endpoints) |
+| `vc/` | W3C VC translation layer: PoA→VC serialization, DID resolution, Data Integrity Proofs, SD-JWT, Bitstring Status List, OpenID4VCI issuance, OpenID4VP verification |
+| `http/` | Optional FastAPI binding (17 mgmt + 4 PEP + 6 VCI/VP endpoints) |
 
 ### Key Concepts
 
@@ -142,7 +154,9 @@ When a local rule-based evaluation yields CONSTRAIN and an `AuthPEPClient` is co
 - **Type C slots**: ai_governance, web3_identity, dna_identity — require Ed25519 signed manifest (fail-closed)
 - **Budget**: additive-only increases; consumption tracked with idempotency keys
 - **Delegation**: scope narrowing, budget carving, depth limits per profile, approval gate (supervised=1, four-eyes=2 approvers)
-- **W3C VC**: PoA→VC Data Model v2.0 serialization, DID resolution (did:web, did:key), Data Integrity Proofs, SD-JWT, Bitstring Status List, OpenID4VCI/VP stubs
+- **W3C VC**: PoA→VC Data Model v2.0 serialization, DID resolution (did:web, did:key), Data Integrity Proofs, SD-JWT, Bitstring Status List
+- **OpenID4VCI**: Full credential issuance — pre-authorized code → token → real VC with Data Integrity Proof; nonce lifecycle (issue/validate/replay prevention)
+- **OpenID4VP**: Full presentation verification — session management, Data Integrity Proof validation, Bitstring Status List revocation check, nonce binding; ECDSA and hash-integrity modes
 - **Mandatory slots**: oauth_engine (unregister rejected)
 
 ## Key Commands
