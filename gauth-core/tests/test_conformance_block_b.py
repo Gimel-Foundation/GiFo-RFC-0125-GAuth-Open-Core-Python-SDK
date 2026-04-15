@@ -1069,7 +1069,7 @@ class TestOpenID4VCI:
         assert vc["proof"]["type"] == "DataIntegrityProof"
         assert vc["proof"]["cryptosuite"] == "ecdsa-rdfc-2019"
 
-        result = verify_data_integrity_proof(vc)
+        result = verify_data_integrity_proof(vc, verification_key=issuer.verification_key)
         assert result["verified"] is True
 
     def test_ct_cf_018d_pre_auth_code_single_use(self):
@@ -1151,7 +1151,7 @@ class TestOpenID4VCI:
 class TestOpenID4VP:
     """CT-CF-019 — OpenID4VP presentation verification."""
 
-    def _issue_vc(self, signing_key=None, status_list_credential="", status_list_index=0):
+    def _issue_vc_with_issuer(self, signing_key=None, status_list_credential="", status_list_index=0):
         issuer = OpenID4VCIssuer(signing_key=signing_key)
         offer = issuer.create_credential_offer(mandate=_make_test_mandate())
         code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
@@ -1161,7 +1161,11 @@ class TestOpenID4VP:
             status_list_credential=status_list_credential,
             status_list_index=status_list_index,
         )
-        return cred_resp["credential"]
+        return cred_resp["credential"], issuer
+
+    def _issue_vc(self, signing_key=None, status_list_credential="", status_list_index=0):
+        vc, _ = self._issue_vc_with_issuer(signing_key, status_list_credential, status_list_index)
+        return vc
 
     def test_ct_cf_019_presentation_request(self):
         verifier = OpenID4VPVerifier()
@@ -1172,19 +1176,20 @@ class TestOpenID4VP:
         assert "nonce_expires_in" in req
 
     def test_ct_cf_019b_full_presentation_roundtrip(self):
-        vc = self._issue_vc()
+        vc, issuer = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
         session_id = req["session_id"]
 
-        result = verifier.submit_presentation(session_id, vp_token=vc)
+        result = verifier.submit_presentation(session_id, vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is True
         assert result["session_id"] == session_id
         assert "GAuthPoACredential" in result["credential_types_verified"]
+        assert result["proof_mode"] == "ecdsa"
 
     def test_ct_cf_019c_session_status_tracking(self):
-        vc = self._issue_vc()
+        vc, issuer = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
@@ -1192,7 +1197,7 @@ class TestOpenID4VP:
         status = verifier.get_session_status(session_id)
         assert status["status"] == "pending"
 
-        verifier.submit_presentation(session_id, vp_token=vc)
+        verifier.submit_presentation(session_id, vp_token=vc, verification_key=issuer.verification_key)
         status = verifier.get_session_status(session_id)
         assert status["status"] == "verified"
 
@@ -1203,16 +1208,27 @@ class TestOpenID4VP:
         assert result["error"] == "session_not_found"
 
     def test_ct_cf_019e_tampered_vc_rejected(self):
-        vc = self._issue_vc()
+        vc, issuer = self._issue_vc_with_issuer()
         vc["credentialSubject"]["mandate_id"] = "TAMPERED"
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is False
         assert result["error"] == "proof_verification_failed"
 
     def test_ct_cf_019f_ecdsa_presentation_roundtrip(self):
+        vc, issuer = self._issue_vc_with_issuer()
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(
+            req["session_id"], vp_token=vc, verification_key=issuer.verification_key,
+        )
+        assert result["verified"] is True
+        assert result["proof_mode"] == "ecdsa"
+
+    def test_ct_cf_019f2_explicit_ecdsa_key_roundtrip(self):
         from cryptography.hazmat.primitives.asymmetric import ec
 
         private_key = ec.generate_private_key(ec.SECP256R1())
@@ -1245,33 +1261,33 @@ class TestOpenID4VP:
         assert result["error"] == "proof_verification_failed"
 
     def test_ct_cf_019h_nonce_replay_rejected(self):
-        vc1 = self._issue_vc()
-        vc2 = self._issue_vc()
+        vc1, issuer1 = self._issue_vc_with_issuer()
+        vc2, issuer2 = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
         session_id = req["session_id"]
 
-        first = verifier.submit_presentation(session_id, vp_token=vc1)
+        first = verifier.submit_presentation(session_id, vp_token=vc1, verification_key=issuer1.verification_key)
         assert first["verified"] is True
 
         req2 = verifier.create_presentation_request()
-        verifier.submit_presentation(req2["session_id"], vp_token=vc2)
-        result = verifier.submit_presentation(req2["session_id"], vp_token=vc2)
+        verifier.submit_presentation(req2["session_id"], vp_token=vc2, verification_key=issuer2.verification_key)
+        result = verifier.submit_presentation(req2["session_id"], vp_token=vc2, verification_key=issuer2.verification_key)
         assert result["verified"] is False
 
     def test_ct_cf_019i_revoked_credential_rejected(self):
         sl = BitstringStatusList(size=1024)
         sl.set_status(7, True, reason="compromised key")
 
-        vc = self._issue_vc(
+        vc, issuer = self._issue_vc_with_issuer(
             status_list_credential="https://gauth.example/status/1",
             status_list_index=7,
         )
 
         verifier = OpenID4VPVerifier(status_list=sl)
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is False
         assert result["error"] == "credential_revoked"
         assert result["revocation_reason"] == "compromised key"
@@ -1279,14 +1295,14 @@ class TestOpenID4VP:
     def test_ct_cf_019j_non_revoked_credential_accepted(self):
         sl = BitstringStatusList(size=1024)
 
-        vc = self._issue_vc(
+        vc, issuer = self._issue_vc_with_issuer(
             status_list_credential="https://gauth.example/status/1",
             status_list_index=7,
         )
 
         verifier = OpenID4VPVerifier(status_list=sl)
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is True
 
     def test_ct_cf_019k_string_vp_token_rejected(self):
@@ -1300,7 +1316,7 @@ class TestOpenID4VP:
 class TestOpenID4VCIVPIntegration:
     """CT-CF-034–038 — Full VCI→VP end-to-end integration."""
 
-    def test_ct_cf_034_issue_then_present_hash_integrity(self):
+    def test_ct_cf_034_issue_then_present_ecdsa_default(self):
         issuer = OpenID4VCIssuer()
         offer = issuer.create_credential_offer(mandate=_make_test_mandate())
         code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
@@ -1310,11 +1326,11 @@ class TestOpenID4VCIVPIntegration:
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is True
-        assert result["proof_mode"] == "hash-integrity"
+        assert result["proof_mode"] == "ecdsa"
 
-    def test_ct_cf_035_issue_then_present_ecdsa(self):
+    def test_ct_cf_035_issue_then_present_explicit_ecdsa(self):
         from cryptography.hazmat.primitives.asymmetric import ec
 
         private_key = ec.generate_private_key(ec.SECP256R1())
@@ -1352,12 +1368,12 @@ class TestOpenID4VCIVPIntegration:
 
         verifier = OpenID4VPVerifier(status_list=sl)
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is True
 
         sl.set_status(10, True, reason="mandate revoked")
         req2 = verifier.create_presentation_request()
-        result2 = verifier.submit_presentation(req2["session_id"], vp_token=vc)
+        result2 = verifier.submit_presentation(req2["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result2["verified"] is False
         assert result2["error"] == "credential_revoked"
 
@@ -1416,7 +1432,7 @@ class TestOpenID4VCIVPIntegration:
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request(credential_types=["SomeOtherCredential"])
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is False
         assert result["error"] == "credential_type_mismatch"
         status = verifier.get_session_status(req["session_id"])

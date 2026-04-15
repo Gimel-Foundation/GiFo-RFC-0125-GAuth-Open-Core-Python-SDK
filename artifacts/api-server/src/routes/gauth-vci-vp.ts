@@ -323,32 +323,13 @@ router.post(
       session.nonce,
     );
     if (!verificationResult.verified) {
-      const noChallenge = verificationResult.reason?.includes("Challenge mismatch");
-      if (noChallenge) {
-        const fallbackResult = verifyDataIntegrityProof(
-          vpToken as Record<string, unknown>,
-          undefined,
-        );
-        if (!fallbackResult.verified) {
-          session.status = "rejected";
-          res.status(400).json({
-            verified: false,
-            error: "proof_verification_failed",
-            proof_error: fallbackResult.reason || "",
-          });
-          return;
-        }
-        Object.assign(verificationResult, fallbackResult);
-        verificationResult.verified = true;
-      } else {
-        session.status = "rejected";
-        res.status(400).json({
-          verified: false,
-          error: "proof_verification_failed",
-          proof_error: verificationResult.reason || "",
-        });
-        return;
-      }
+      session.status = "rejected";
+      res.status(400).json({
+        verified: false,
+        error: "proof_verification_failed",
+        proof_error: verificationResult.reason || "",
+      });
+      return;
     }
 
     if ((vpToken as Record<string, unknown>).credentialStatus) {

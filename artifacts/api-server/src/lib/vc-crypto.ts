@@ -18,11 +18,6 @@ export function getVerificationPublicKey(): crypto.KeyObject {
   return getOrCreateKeyPair().publicKey;
 }
 
-export function canonicalHash(data: Record<string, unknown>): Buffer {
-  const canonical = JSON.stringify(data, Object.keys(data).sort(), undefined);
-  return crypto.createHash("sha256").update(stableStringify(data)).digest();
-}
-
 function stableStringify(obj: unknown): string {
   if (obj === null || obj === undefined) return JSON.stringify(obj);
   if (typeof obj !== "object") return JSON.stringify(obj);
@@ -33,10 +28,6 @@ function stableStringify(obj: unknown): string {
   const keys = Object.keys(record).sort();
   const parts = keys.map((k) => JSON.stringify(k) + ":" + stableStringify(record[k]));
   return "{" + parts.join(",") + "}";
-}
-
-export function canonicalHashHex(data: Record<string, unknown>): string {
-  return crypto.createHash("sha256").update(stableStringify(data)).digest("hex");
 }
 
 export function createDataIntegrityProof(

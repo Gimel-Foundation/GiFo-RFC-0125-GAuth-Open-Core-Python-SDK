@@ -59,12 +59,20 @@ class OpenID4VCIssuer:
         nonce_ttl: int = 300,
     ) -> None:
         self._issuer_url = issuer_url
-        self._signing_key = signing_key
+        if signing_key is None:
+            from cryptography.hazmat.primitives.asymmetric import ec
+            self._signing_key = ec.generate_private_key(ec.SECP256R1())
+        else:
+            self._signing_key = signing_key
         self._verification_method = verification_method
         self._nonces = _NonceStore(default_ttl=nonce_ttl)
         self._codes: dict[str, dict[str, Any]] = {}
         self._tokens: dict[str, dict[str, Any]] = {}
         self._offers: dict[str, dict[str, Any]] = {}
+
+    @property
+    def verification_key(self) -> Any:
+        return self._signing_key.public_key()
 
     def create_credential_offer(
         self,
@@ -253,7 +261,7 @@ class OpenID4VPVerifier:
             },
             "nonce": nonce,
             "nonce_expires_in": nonce_ttl,
-            "response_uri": f"{self._verifier_url}/response/{session_id}",
+            "response_uri": f"{self._verifier_url}/gauth/vp/v1/presentation-requests/{session_id}/response",
             "response_mode": "direct_post",
         }
 
