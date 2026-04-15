@@ -103,16 +103,11 @@ export function verifyDataIntegrityProof(
     if (isValid) {
       return { verified: true, cryptosuite: suite, mode: "ecdsa" };
     }
-  } catch {
-    // fall through to hash-integrity check
+    return { verified: false, reason: "ECDSA signature verification failed" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { verified: false, reason: `ECDSA signature verification failed: ${msg}` };
   }
-
-  const expectedHex = digest.toString("hex");
-  if (proofValue === expectedHex) {
-    return { verified: true, cryptosuite: suite, mode: "hash-integrity" };
-  }
-
-  return { verified: false, reason: "Proof value mismatch" };
 }
 
 export interface StatusListEntry {

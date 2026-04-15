@@ -215,7 +215,7 @@ router.post(
 
     const vc = poaToVc(mandate, issuerDid, statusListCredential, statusListIndex) as Record<string, unknown>;
 
-    const proof = createDataIntegrityProof(vc, `${issuerDid}#key-1`, cNonce);
+    const proof = createDataIntegrityProof(vc, `${issuerDid}#key-1`);
     vc.proof = proof;
 
     const { nonce: newNonce, ttl: newTtl } = issueNonce();
@@ -317,10 +317,13 @@ router.post(
       return;
     }
 
+    const vpProof = (vpToken as Record<string, unknown>).proof as Record<string, unknown> | undefined;
+    const challengeToCheck = vpProof?.challenge ? session.nonce : undefined;
+
     const verificationResult = verifyDataIntegrityProof(
       vpToken as Record<string, unknown>,
       getVerificationPublicKey(),
-      session.nonce,
+      challengeToCheck,
     );
     if (!verificationResult.verified) {
       session.status = "rejected";

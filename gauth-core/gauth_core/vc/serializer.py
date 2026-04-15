@@ -150,6 +150,7 @@ def create_data_integrity_proof(
     verification_method: str = "",
     proof_value: str = "",
     signing_key: Any | None = None,
+    challenge: str = "",
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
@@ -165,7 +166,7 @@ def create_data_integrity_proof(
         else:
             proof_value = digest.hex()
 
-    return {
+    proof: dict[str, Any] = {
         "type": "DataIntegrityProof",
         "cryptosuite": ECDSA_CRYPTOSUITE,
         "created": now.isoformat(),
@@ -173,6 +174,11 @@ def create_data_integrity_proof(
         "proofPurpose": "assertionMethod",
         "proofValue": proof_value,
     }
+
+    if challenge:
+        proof["challenge"] = challenge
+
+    return proof
 
 
 def verify_data_integrity_proof(
