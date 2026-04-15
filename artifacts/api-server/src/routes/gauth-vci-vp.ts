@@ -377,7 +377,9 @@ function verifyVpWrapper(
     };
   }
 
-  const vpVerifyResult = verifyDataIntegrityProof(vp, undefined, session.nonce);
+  const holderVm = (vpProof.verificationMethod as string) || "";
+  const holderKey = resolveIssuerKey(holderVm);
+  const vpVerifyResult = verifyDataIntegrityProof(vp, holderKey, session.nonce);
   if (!vpVerifyResult.verified) {
     return {
       verified: false,
