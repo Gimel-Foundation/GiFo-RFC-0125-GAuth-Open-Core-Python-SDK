@@ -1175,29 +1175,61 @@ class TestOpenID4VP:
         assert "session_id" in req
         assert "nonce_expires_in" in req
 
-    def test_ct_cf_019b_full_presentation_roundtrip(self):
+    def test_ct_cf_019b_full_vp_wrapper_roundtrip(self):
+        """Full OpenID4VP roundtrip with VerifiablePresentation wrapper and mandatory challenge binding."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from gauth_core.vc.openid import create_verifiable_presentation
+
+        holder_key = ec.generate_private_key(ec.SECP256R1())
+        vc, issuer = self._issue_vc_with_issuer()
+
+        verifier = OpenID4VPVerifier()
+        verifier.register_trusted_issuer(issuer.issuer_did, issuer.verification_key)
+        req = verifier.create_presentation_request()
+        session_id = req["session_id"]
+        nonce = req["nonce"]
+
+        vp = create_verifiable_presentation(vc, challenge=nonce, holder_did="did:key:holder1", signing_key=holder_key)
+        result = verifier.submit_presentation(session_id, vp_token=vp, verification_key=holder_key.public_key())
+        assert result["verified"] is True
+        assert result["session_id"] == session_id
+        assert "GAuthPoACredential" in result["credential_types_verified"]
+        assert result["proof_mode"] == "ecdsa"
+
+    def test_ct_cf_019b2_bare_vc_with_trusted_registry(self):
+        """Bare VC submission with trusted issuer key resolution."""
+        vc, issuer = self._issue_vc_with_issuer()
+
+        verifier = OpenID4VPVerifier()
+        verifier.register_trusted_issuer(issuer.issuer_did, issuer.verification_key)
+        req = verifier.create_presentation_request()
+
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is True
+        assert "GAuthPoACredential" in result["credential_types_verified"]
+
+    def test_ct_cf_019b3_bare_vc_with_explicit_key(self):
+        """Bare VC submission with explicit verification key."""
         vc, issuer = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
-        session_id = req["session_id"]
 
-        result = verifier.submit_presentation(session_id, vp_token=vc, verification_key=issuer.verification_key)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc, verification_key=issuer.verification_key)
         assert result["verified"] is True
-        assert result["session_id"] == session_id
-        assert "GAuthPoACredential" in result["credential_types_verified"]
         assert result["proof_mode"] == "ecdsa"
 
     def test_ct_cf_019c_session_status_tracking(self):
         vc, issuer = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
+        verifier.register_trusted_issuer(issuer.issuer_did, issuer.verification_key)
         req = verifier.create_presentation_request()
         session_id = req["session_id"]
         status = verifier.get_session_status(session_id)
         assert status["status"] == "pending"
 
-        verifier.submit_presentation(session_id, vp_token=vc, verification_key=issuer.verification_key)
+        verifier.submit_presentation(session_id, vp_token=vc)
         status = verifier.get_session_status(session_id)
         assert status["status"] == "verified"
 
@@ -1217,32 +1249,40 @@ class TestOpenID4VP:
         assert result["verified"] is False
         assert result["error"] == "proof_verification_failed"
 
-    def test_ct_cf_019f_ecdsa_presentation_roundtrip(self):
+    def test_ct_cf_019f_vp_wrapper_challenge_mismatch_rejected(self):
+        """VP wrapper with wrong challenge nonce must be rejected."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from gauth_core.vc.openid import create_verifiable_presentation
+
+        holder_key = ec.generate_private_key(ec.SECP256R1())
+        vc, issuer = self._issue_vc_with_issuer()
+
+        verifier = OpenID4VPVerifier()
+        verifier.register_trusted_issuer(issuer.issuer_did, issuer.verification_key)
+        req = verifier.create_presentation_request()
+
+        vp = create_verifiable_presentation(vc, challenge="wrong_nonce", holder_did="did:key:h1", signing_key=holder_key)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vp, verification_key=holder_key.public_key())
+        assert result["verified"] is False
+        assert "challenge" in result.get("proof_error", "").lower() or result["error"] == "proof_verification_failed"
+
+    def test_ct_cf_019f2_vp_wrapper_missing_challenge_rejected(self):
+        """VP wrapper without challenge in proof must be rejected."""
+        from gauth_core.vc.openid import create_verifiable_presentation
+
         vc, issuer = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(
-            req["session_id"], vp_token=vc, verification_key=issuer.verification_key,
-        )
-        assert result["verified"] is True
-        assert result["proof_mode"] == "ecdsa"
 
-    def test_ct_cf_019f2_explicit_ecdsa_key_roundtrip(self):
-        from cryptography.hazmat.primitives.asymmetric import ec
-
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        public_key = private_key.public_key()
-
-        vc = self._issue_vc(signing_key=private_key)
-
-        verifier = OpenID4VPVerifier()
-        req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(
-            req["session_id"], vp_token=vc, verification_key=public_key,
-        )
-        assert result["verified"] is True
-        assert result["proof_mode"] == "ecdsa"
+        vp = {
+            "@context": ["https://www.w3.org/ns/credentials/v2"],
+            "type": ["VerifiablePresentation"],
+            "verifiableCredential": [vc],
+            "proof": {"type": "DataIntegrityProof", "cryptosuite": "ecdsa-rdfc-2019", "proofValue": "fake"},
+        }
+        result = verifier.submit_presentation(req["session_id"], vp_token=vp)
+        assert result["verified"] is False
 
     def test_ct_cf_019g_ecdsa_wrong_key_rejected(self):
         from cryptography.hazmat.primitives.asymmetric import ec
@@ -1262,7 +1302,6 @@ class TestOpenID4VP:
 
     def test_ct_cf_019h_nonce_replay_rejected(self):
         vc1, issuer1 = self._issue_vc_with_issuer()
-        vc2, issuer2 = self._issue_vc_with_issuer()
 
         verifier = OpenID4VPVerifier()
         req = verifier.create_presentation_request()
@@ -1271,6 +1310,7 @@ class TestOpenID4VP:
         first = verifier.submit_presentation(session_id, vp_token=vc1, verification_key=issuer1.verification_key)
         assert first["verified"] is True
 
+        vc2, issuer2 = self._issue_vc_with_issuer()
         req2 = verifier.create_presentation_request()
         verifier.submit_presentation(req2["session_id"], vp_token=vc2, verification_key=issuer2.verification_key)
         result = verifier.submit_presentation(req2["session_id"], vp_token=vc2, verification_key=issuer2.verification_key)
@@ -1405,19 +1445,25 @@ class TestOpenID4VCIVPIntegration:
 
     def test_ct_cf_039b_vp_challenge_mismatch_rejected(self):
         """CT-CF-039b: VP with wrong challenge nonce in proof must be rejected."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from gauth_core.vc.openid import create_verifiable_presentation
+
+        holder_key = ec.generate_private_key(ec.SECP256R1())
         issuer = OpenID4VCIssuer()
         offer = issuer.create_credential_offer(mandate=_make_test_mandate())
         code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
         tok = issuer.token_endpoint(code)
         cred_resp = issuer.credential_endpoint(tok["access_token"], c_nonce=tok["c_nonce"])
         vc = cred_resp["credential"]
-        vc["proof"]["challenge"] = "wrong_nonce_value"
 
         verifier = OpenID4VPVerifier()
+        verifier.register_trusted_issuer(issuer.issuer_did, issuer.verification_key)
         req = verifier.create_presentation_request()
-        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+
+        vp = create_verifiable_presentation(vc, challenge="wrong_nonce_value", holder_did="did:key:h1", signing_key=holder_key)
+        result = verifier.submit_presentation(req["session_id"], vp_token=vp, verification_key=holder_key.public_key())
         assert result["verified"] is False
-        assert "Challenge mismatch" in result["proof_error"]
+        assert "challenge" in result.get("proof_error", "").lower()
         status = verifier.get_session_status(req["session_id"])
         assert status["status"] == "rejected"
 

@@ -39,6 +39,7 @@ def create_app(
     pep_engine = PEPEngine(repository=repo, adapter_registry=adapter_registry)
     vci_issuer = OpenID4VCIssuer(signing_key=signing_key)
     vp_verifier = OpenID4VPVerifier(status_list=status_list)
+    vp_verifier.register_trusted_issuer(vci_issuer.issuer_did, vci_issuer.verification_key)
 
     app = FastAPI(
         title="GAuth Open Core",
@@ -292,7 +293,6 @@ def create_app(
             session_id=session_id,
             vp_token=body.get("vp_token", ""),
             presentation_submission=body.get("presentation_submission"),
-            verification_key=vci_issuer.verification_key,
         )
         status_code = 200 if result.get("verified") else 400
         return JSONResponse(status_code=status_code, content=result)

@@ -45,10 +45,15 @@ const tokens = new Map<string, TokenEntry>();
 const offers = new Map<string, Record<string, unknown>>();
 const vpSessions = new Map<string, VPSession>();
 const statusList = new BitstringStatusList(1024);
+const trustedIssuerKeys = new Map<string, crypto.KeyObject>();
 
 const NONCE_TTL = 300;
 const TOKEN_TTL = 3600;
 const SESSION_TTL = 600;
+
+const issuerDid = "did:web:gauth.gimel.foundation";
+
+trustedIssuerKeys.set(issuerDid, getVerificationPublicKey());
 
 function issueNonce(ttl = NONCE_TTL): { nonce: string; ttl: number } {
   const nonce = `c_nonce_${crypto.randomBytes(24).toString("base64url")}`;
@@ -67,6 +72,13 @@ function validateAndConsumeNonce(nonce: string): { valid: boolean; reason?: stri
   nonces.delete(nonce);
   usedNonces.add(nonce);
   return { valid: true };
+}
+
+function resolveIssuerKey(verificationMethod: string): crypto.KeyObject | undefined {
+  const did = verificationMethod.includes("#")
+    ? verificationMethod.split("#")[0]
+    : verificationMethod;
+  return trustedIssuerKeys.get(did);
 }
 
 function asyncHandler(fn: (req: Request, res: Response) => Promise<void>) {
@@ -208,7 +220,6 @@ router.post(
     }
 
     const mandate = tokenEntry.mandate;
-    const issuerDid = "did:web:gauth.gimel.foundation";
 
     const statusListCredential = req.body?.status_list_credential;
     const statusListIndex = req.body?.status_list_index;
@@ -317,65 +328,172 @@ router.post(
       return;
     }
 
-    const vpProof = (vpToken as Record<string, unknown>).proof as Record<string, unknown> | undefined;
-    const challengeToCheck = vpProof?.challenge ? session.nonce : undefined;
+    const vpTypes: string[] = (vpToken as Record<string, unknown>).type as string[] || [];
+    const isVpWrapper = vpTypes.includes("VerifiablePresentation");
 
-    const verificationResult = verifyDataIntegrityProof(
-      vpToken as Record<string, unknown>,
-      getVerificationPublicKey(),
-      challengeToCheck,
-    );
-    if (!verificationResult.verified) {
-      session.status = "rejected";
-      res.status(400).json({
-        verified: false,
-        error: "proof_verification_failed",
-        proof_error: verificationResult.reason || "",
-      });
+    if (isVpWrapper) {
+      const vpResult = verifyVpWrapper(session, vpToken as Record<string, unknown>);
+      if (!vpResult.verified) {
+        session.status = "rejected";
+        res.status(400).json(vpResult);
+        return;
+      }
+      session.status = "verified";
+      session.vpToken = vpToken;
+      res.json({ ...vpResult, session_id: sessionId });
       return;
     }
 
-    if ((vpToken as Record<string, unknown>).credentialStatus) {
-      const revocation = statusList.checkRevocation(
-        (vpToken as Record<string, unknown>).credentialStatus as Record<string, unknown>,
-      );
+    const bareResult = verifyBareVc(session, vpToken as Record<string, unknown>);
+    if (!bareResult.verified) {
+      session.status = "rejected";
+      res.status(400).json(bareResult);
+      return;
+    }
+    session.status = "verified";
+    session.vpToken = vpToken;
+    res.json({ ...bareResult, session_id: sessionId });
+  }),
+);
+
+function verifyVpWrapper(
+  session: VPSession,
+  vp: Record<string, unknown>,
+): Record<string, unknown> {
+  const vpProof = vp.proof as Record<string, unknown> | undefined;
+  if (!vpProof || typeof vpProof !== "object") {
+    return {
+      verified: false,
+      error: "proof_verification_failed",
+      proof_error: "VP must include a proof",
+    };
+  }
+
+  if (vpProof.challenge !== session.nonce) {
+    return {
+      verified: false,
+      error: "proof_verification_failed",
+      proof_error: "VP proof challenge must match session nonce",
+    };
+  }
+
+  const vpVerifyResult = verifyDataIntegrityProof(vp, undefined, session.nonce);
+  if (!vpVerifyResult.verified) {
+    return {
+      verified: false,
+      error: "proof_verification_failed",
+      proof_error: `VP proof invalid: ${vpVerifyResult.reason || ""}`,
+    };
+  }
+
+  const vcs = vp.verifiableCredential as Record<string, unknown>[];
+  if (!Array.isArray(vcs) || vcs.length === 0) {
+    return { verified: false, error: "no_credentials_in_presentation" };
+  }
+
+  const allMatchedTypes: string[] = [];
+  for (const vc of vcs) {
+    if (!vc || typeof vc !== "object") {
+      return { verified: false, error: "invalid_credential_in_presentation" };
+    }
+
+    const vcProof = vc.proof as Record<string, unknown> | undefined;
+    const vm = (vcProof?.verificationMethod as string) || "";
+    const resolvedKey = resolveIssuerKey(vm);
+    const vcKey = resolvedKey || getVerificationPublicKey();
+
+    const vcVerify = verifyDataIntegrityProof(vc, vcKey);
+    if (!vcVerify.verified) {
+      return {
+        verified: false,
+        error: "proof_verification_failed",
+        proof_error: `VC proof invalid: ${vcVerify.reason || ""}`,
+      };
+    }
+
+    if (vc.credentialStatus) {
+      const revocation = statusList.checkRevocation(vc.credentialStatus as Record<string, unknown>);
       if (revocation.revoked) {
-        session.status = "rejected";
-        res.status(400).json({
+        return {
           verified: false,
           error: "credential_revoked",
           revocation_reason: revocation.reason || "",
-        });
-        return;
+        };
       }
     }
 
-    const vcTypes: string[] = (vpToken as Record<string, unknown>).type as string[] || [];
-    const matchedTypes = session.credentialTypes.filter((t: string) => vcTypes.includes(t));
-
-    if (matchedTypes.length === 0) {
-      session.status = "rejected";
-      res.status(400).json({
-        verified: false,
-        error: "credential_type_mismatch",
-        expected_types: session.credentialTypes,
-        received_types: vcTypes,
-      });
-      return;
+    const vcTypes: string[] = (vc.type as string[]) || [];
+    for (const t of session.credentialTypes) {
+      if (vcTypes.includes(t) && !allMatchedTypes.includes(t)) {
+        allMatchedTypes.push(t);
+      }
     }
+  }
 
-    session.status = "verified";
-    session.vpToken = vpToken;
+  if (allMatchedTypes.length === 0) {
+    return {
+      verified: false,
+      error: "credential_type_mismatch",
+      expected_types: session.credentialTypes,
+    };
+  }
 
-    res.json({
-      verified: true,
-      session_id: sessionId,
-      credential_types_verified: matchedTypes,
-      proof_mode: verificationResult.mode || "",
-      cryptosuite: verificationResult.cryptosuite || "ecdsa-rdfc-2019",
-    });
-  }),
-);
+  return {
+    verified: true,
+    credential_types_verified: allMatchedTypes,
+    proof_mode: vpVerifyResult.mode || "",
+    cryptosuite: vpVerifyResult.cryptosuite || "ecdsa-rdfc-2019",
+  };
+}
+
+function verifyBareVc(
+  session: VPSession,
+  vc: Record<string, unknown>,
+): Record<string, unknown> {
+  const vcProof = vc.proof as Record<string, unknown> | undefined;
+  const vm = (vcProof?.verificationMethod as string) || "";
+  const resolvedKey = resolveIssuerKey(vm);
+  const effectiveKey = resolvedKey || getVerificationPublicKey();
+
+  const verificationResult = verifyDataIntegrityProof(vc, effectiveKey);
+  if (!verificationResult.verified) {
+    return {
+      verified: false,
+      error: "proof_verification_failed",
+      proof_error: verificationResult.reason || "",
+    };
+  }
+
+  if (vc.credentialStatus) {
+    const revocation = statusList.checkRevocation(vc.credentialStatus as Record<string, unknown>);
+    if (revocation.revoked) {
+      return {
+        verified: false,
+        error: "credential_revoked",
+        revocation_reason: revocation.reason || "",
+      };
+    }
+  }
+
+  const vcTypes: string[] = (vc.type as string[]) || [];
+  const matchedTypes = session.credentialTypes.filter((t: string) => vcTypes.includes(t));
+
+  if (matchedTypes.length === 0) {
+    return {
+      verified: false,
+      error: "credential_type_mismatch",
+      expected_types: session.credentialTypes,
+      received_types: vcTypes,
+    };
+  }
+
+  return {
+    verified: true,
+    credential_types_verified: matchedTypes,
+    proof_mode: verificationResult.mode || "",
+    cryptosuite: verificationResult.cryptosuite || "ecdsa-rdfc-2019",
+  };
+}
 
 router.get(
   "/vp/v1/presentation-requests/:sessionId",

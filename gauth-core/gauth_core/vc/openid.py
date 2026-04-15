@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import secrets
 import time
 import uuid
@@ -49,6 +51,19 @@ class _NonceStore:
         return len(expired)
 
 
+class TrustedIssuerRegistry:
+
+    def __init__(self) -> None:
+        self._keys: dict[str, Any] = {}
+
+    def register(self, issuer_did: str, public_key: Any) -> None:
+        self._keys[issuer_did] = public_key
+
+    def resolve(self, verification_method: str) -> Any | None:
+        did = verification_method.split("#")[0] if "#" in verification_method else verification_method
+        return self._keys.get(did)
+
+
 class OpenID4VCIssuer:
 
     def __init__(
@@ -73,6 +88,10 @@ class OpenID4VCIssuer:
     @property
     def verification_key(self) -> Any:
         return self._signing_key.public_key()
+
+    @property
+    def issuer_did(self) -> str:
+        return f"did:web:{self._issuer_url.replace('https://', '').replace('http://', '')}"
 
     def create_credential_offer(
         self,
@@ -180,7 +199,7 @@ class OpenID4VCIssuer:
             }
 
         mandate = token_entry["mandate"]
-        effective_issuer = issuer_did or f"did:web:{self._issuer_url.replace('https://', '').replace('http://', '')}"
+        effective_issuer = issuer_did or self.issuer_did
 
         vc = poa_to_vc(
             mandate,
@@ -206,6 +225,31 @@ class OpenID4VCIssuer:
         }
 
 
+def create_verifiable_presentation(
+    vc: dict[str, Any],
+    challenge: str,
+    holder_did: str = "",
+    signing_key: Any | None = None,
+) -> dict[str, Any]:
+    vp: dict[str, Any] = {
+        "@context": ["https://www.w3.org/ns/credentials/v2"],
+        "type": ["VerifiablePresentation"],
+        "verifiableCredential": [vc],
+    }
+    if holder_did:
+        vp["holder"] = holder_did
+
+    vp_without_proof = dict(vp)
+    proof_obj = create_data_integrity_proof(
+        vp_without_proof,
+        verification_method=f"{holder_did}#key-1" if holder_did else "",
+        signing_key=signing_key,
+        challenge=challenge,
+    )
+    vp["proof"] = proof_obj
+    return vp
+
+
 class OpenID4VPVerifier:
 
     def __init__(
@@ -213,12 +257,17 @@ class OpenID4VPVerifier:
         verifier_url: str = "https://gauth.gimel.foundation/verify",
         status_list: BitstringStatusList | None = None,
         session_ttl: int = 600,
+        trusted_issuers: TrustedIssuerRegistry | None = None,
     ) -> None:
         self._verifier_url = verifier_url
         self._status_list = status_list
         self._nonces = _NonceStore(default_ttl=session_ttl)
         self._sessions: dict[str, dict[str, Any]] = {}
         self._session_ttl = session_ttl
+        self._trusted_issuers = trusted_issuers or TrustedIssuerRegistry()
+
+    def register_trusted_issuer(self, issuer_did: str, public_key: Any) -> None:
+        self._trusted_issuers.register(issuer_did, public_key)
 
     def create_presentation_request(
         self,
@@ -304,18 +353,130 @@ class OpenID4VPVerifier:
             session["status"] = "rejected"
             return {"verified": False, "error": "vp_token_must_be_vc_object"}
 
-        vc = vp_token
-        proof_obj = vc.get("proof", {})
-        if isinstance(proof_obj, dict) and "challenge" in proof_obj:
-            if proof_obj["challenge"] != nonce:
+        vp_types = vp_token.get("type", [])
+        is_vp_wrapper = "VerifiablePresentation" in vp_types
+
+        if is_vp_wrapper:
+            return self._verify_vp_wrapper(session_id, session, vp_token, nonce, verification_key)
+        else:
+            return self._verify_bare_vc(session_id, session, vp_token, verification_key)
+
+    def _verify_vp_wrapper(
+        self,
+        session_id: str,
+        session: dict[str, Any],
+        vp: dict[str, Any],
+        nonce: str,
+        verification_key: Any | None,
+    ) -> dict[str, Any]:
+        vp_proof = vp.get("proof", {})
+        if not isinstance(vp_proof, dict):
+            session["status"] = "rejected"
+            return {
+                "verified": False,
+                "error": "proof_verification_failed",
+                "proof_error": "VP must include a proof",
+            }
+
+        if vp_proof.get("challenge") != nonce:
+            session["status"] = "rejected"
+            return {
+                "verified": False,
+                "error": "proof_verification_failed",
+                "proof_error": "VP proof challenge must match session nonce",
+            }
+
+        vp_verify_result = verify_data_integrity_proof(vp, verification_key=verification_key)
+        if not vp_verify_result["verified"]:
+            session["status"] = "rejected"
+            return {
+                "verified": False,
+                "error": "proof_verification_failed",
+                "proof_error": f"VP proof invalid: {vp_verify_result.get('reason', '')}",
+            }
+
+        vcs = vp.get("verifiableCredential", [])
+        if not vcs:
+            session["status"] = "rejected"
+            return {"verified": False, "error": "no_credentials_in_presentation"}
+
+        all_matched_types: list[str] = []
+        for vc in vcs:
+            if not isinstance(vc, dict):
+                session["status"] = "rejected"
+                return {"verified": False, "error": "invalid_credential_in_presentation"}
+
+            vc_key: Any | None = None
+            vc_proof = vc.get("proof", {})
+            vm = vc_proof.get("verificationMethod", "") if isinstance(vc_proof, dict) else ""
+            resolved = self._trusted_issuers.resolve(vm)
+            if resolved is not None:
+                vc_key = resolved
+            if vc_key is None:
+                vc_key = verification_key
+
+            vc_verify = verify_data_integrity_proof(vc, verification_key=vc_key)
+            if not vc_verify["verified"]:
                 session["status"] = "rejected"
                 return {
                     "verified": False,
                     "error": "proof_verification_failed",
-                    "proof_error": "Challenge mismatch: nonce not bound to proof",
+                    "proof_error": f"VC proof invalid: {vc_verify.get('reason', '')}",
                 }
 
-        verification_result = verify_data_integrity_proof(vc, verification_key=verification_key)
+            if self._status_list and "credentialStatus" in vc:
+                revocation = self._status_list.check_revocation(vc["credentialStatus"])
+                if revocation["revoked"]:
+                    session["status"] = "rejected"
+                    return {
+                        "verified": False,
+                        "error": "credential_revoked",
+                        "revocation_reason": revocation.get("reason", ""),
+                    }
+
+            vc_types = vc.get("type", [])
+            expected = session.get("credential_types", [])
+            for t in expected:
+                if t in vc_types and t not in all_matched_types:
+                    all_matched_types.append(t)
+
+        expected_types = session.get("credential_types", [])
+        if not all_matched_types:
+            session["status"] = "rejected"
+            return {
+                "verified": False,
+                "error": "credential_type_mismatch",
+                "expected_types": expected_types,
+                "received_types": [t for vc in vcs if isinstance(vc, dict) for t in vc.get("type", [])],
+            }
+
+        session["status"] = "verified"
+        session["vp_token"] = vp
+
+        return {
+            "verified": True,
+            "session_id": session_id,
+            "credential_types_verified": all_matched_types,
+            "proof_mode": vp_verify_result.get("mode", ""),
+            "cryptosuite": vp_verify_result.get("cryptosuite", ""),
+        }
+
+    def _verify_bare_vc(
+        self,
+        session_id: str,
+        session: dict[str, Any],
+        vc: dict[str, Any],
+        verification_key: Any | None,
+    ) -> dict[str, Any]:
+        effective_key = verification_key
+        if effective_key is None:
+            vc_proof = vc.get("proof", {})
+            vm = vc_proof.get("verificationMethod", "") if isinstance(vc_proof, dict) else ""
+            resolved = self._trusted_issuers.resolve(vm)
+            if resolved is not None:
+                effective_key = resolved
+
+        verification_result = verify_data_integrity_proof(vc, verification_key=effective_key)
         if not verification_result["verified"]:
             session["status"] = "rejected"
             return {
@@ -349,7 +510,7 @@ class OpenID4VPVerifier:
             }
 
         session["status"] = "verified"
-        session["vp_token"] = vp_token
+        session["vp_token"] = vc
 
         return {
             "verified": True,
