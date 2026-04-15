@@ -97,8 +97,8 @@ class OpenID4VCIssuer:
     def get_issuer_metadata(self) -> dict[str, Any]:
         return {
             "credential_issuer": self._issuer_url,
-            "credential_endpoint": f"{self._issuer_url}/credentials",
-            "token_endpoint": f"{self._issuer_url}/token",
+            "credential_endpoint": f"{self._issuer_url}/gauth/vci/v1/credentials",
+            "token_endpoint": f"{self._issuer_url}/gauth/vci/v1/token",
             "credential_configurations_supported": {
                 "GAuthPoACredential": {
                     "format": "jwt_vc_json",
@@ -297,6 +297,16 @@ class OpenID4VPVerifier:
             return {"verified": False, "error": "vp_token_must_be_vc_object"}
 
         vc = vp_token
+        proof_obj = vc.get("proof", {})
+        if isinstance(proof_obj, dict) and "challenge" in proof_obj:
+            if proof_obj["challenge"] != nonce:
+                session["status"] = "rejected"
+                return {
+                    "verified": False,
+                    "error": "proof_verification_failed",
+                    "proof_error": "Challenge mismatch: nonce not bound to proof",
+                }
+
         verification_result = verify_data_integrity_proof(vc, verification_key=verification_key)
         if not verification_result["verified"]:
             session["status"] = "rejected"

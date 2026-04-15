@@ -1387,6 +1387,24 @@ class TestOpenID4VCIVPIntegration:
         assert result["error"] == "invalid_proof"
         assert result["c_nonce_error"] == "nonce_missing"
 
+    def test_ct_cf_039b_vp_challenge_mismatch_rejected(self):
+        """CT-CF-039b: VP with wrong challenge nonce in proof must be rejected."""
+        issuer = OpenID4VCIssuer()
+        offer = issuer.create_credential_offer(mandate=_make_test_mandate())
+        code = offer["grants"]["urn:ietf:params:oauth:grant-type:pre-authorized_code"]["pre-authorized_code"]
+        tok = issuer.token_endpoint(code)
+        cred_resp = issuer.credential_endpoint(tok["access_token"], c_nonce=tok["c_nonce"])
+        vc = cred_resp["credential"]
+        vc["proof"]["challenge"] = "wrong_nonce_value"
+
+        verifier = OpenID4VPVerifier()
+        req = verifier.create_presentation_request()
+        result = verifier.submit_presentation(req["session_id"], vp_token=vc)
+        assert result["verified"] is False
+        assert "Challenge mismatch" in result["proof_error"]
+        status = verifier.get_session_status(req["session_id"])
+        assert status["status"] == "rejected"
+
     def test_ct_cf_040_vp_type_mismatch_rejected(self):
         """CT-CF-040: VP with wrong credential type must be rejected."""
         issuer = OpenID4VCIssuer()

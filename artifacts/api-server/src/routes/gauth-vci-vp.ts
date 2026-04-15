@@ -1,6 +1,13 @@
 import crypto from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { ManagementError } from "@workspace/db";
+import {
+  poaToVc,
+  createDataIntegrityProof,
+  verifyDataIntegrityProof,
+  getVerificationPublicKey,
+  BitstringStatusList,
+} from "../lib/vc-crypto.js";
 
 const router = Router();
 
@@ -37,6 +44,7 @@ const codes = new Map<string, CodeEntry>();
 const tokens = new Map<string, TokenEntry>();
 const offers = new Map<string, Record<string, unknown>>();
 const vpSessions = new Map<string, VPSession>();
+const statusList = new BitstringStatusList(1024);
 
 const NONCE_TTL = 300;
 const TOKEN_TTL = 3600;
@@ -61,25 +69,24 @@ function validateAndConsumeNonce(nonce: string): { valid: boolean; reason?: stri
   return { valid: true };
 }
 
-function canonicalHash(data: Record<string, unknown>): string {
-  const canonical = JSON.stringify(data, Object.keys(data).sort());
-  return crypto.createHash("sha256").update(canonical).digest("hex");
-}
-
 function asyncHandler(fn: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
     fn(req, res).catch(next);
   };
 }
 
+function getBaseUrl(req: Request): string {
+  return process.env.GAUTH_ISSUER_URL || `${req.protocol}://${req.get("host")}`;
+}
+
 router.get(
   "/.well-known/openid-credential-issuer",
-  (_req, res) => {
-    const issuerUrl = process.env.GAUTH_ISSUER_URL || "https://gauth.gimel.foundation";
+  (req, res) => {
+    const baseUrl = getBaseUrl(req);
     res.json({
-      credential_issuer: issuerUrl,
-      credential_endpoint: `${issuerUrl}/credentials`,
-      token_endpoint: `${issuerUrl}/token`,
+      credential_issuer: baseUrl,
+      credential_endpoint: `${baseUrl}/gauth/vci/v1/credentials`,
+      token_endpoint: `${baseUrl}/gauth/vci/v1/token`,
       credential_configurations_supported: {
         GAuthPoACredential: {
           format: "jwt_vc_json",
@@ -114,7 +121,7 @@ router.post(
     });
 
     const offer = {
-      credential_issuer: process.env.GAUTH_ISSUER_URL || "https://gauth.gimel.foundation",
+      credential_issuer: getBaseUrl(req),
       credential_configuration_ids: [credentialType],
       grants: {
         [grantType]: { "pre-authorized_code": preAuthCode },
@@ -201,47 +208,15 @@ router.post(
     }
 
     const mandate = tokenEntry.mandate;
-    const vcId = `urn:uuid:${crypto.randomUUID()}`;
     const issuerDid = "did:web:gauth.gimel.foundation";
 
-    const scope = (mandate.scope || {}) as Record<string, unknown>;
-    const parties = (mandate.parties || {}) as Record<string, unknown>;
-    const coreVerbs = (scope.core_verbs || {}) as Record<string, unknown>;
+    const statusListCredential = req.body?.status_list_credential;
+    const statusListIndex = req.body?.status_list_index;
 
-    const allowedActions = Object.entries(coreVerbs)
-      .filter(([, v]) => {
-        if (typeof v === "object" && v !== null) return (v as Record<string, unknown>).allowed !== false;
-        return Boolean(v);
-      })
-      .map(([k]) => k)
-      .sort();
+    const vc = poaToVc(mandate, issuerDid, statusListCredential, statusListIndex) as Record<string, unknown>;
 
-    const vc: Record<string, unknown> = {
-      "@context": [
-        "https://www.w3.org/ns/credentials/v2",
-        "https://gauth.gimel.foundation/credentials/v1",
-      ],
-      id: vcId,
-      type: ["VerifiableCredential", "GAuthPoACredential"],
-      issuer: { id: issuerDid, name: "GAuth Open Core" },
-      credentialSubject: {
-        id: parties.subject ? `did:key:${parties.subject}` : "",
-        mandate_id: mandate.mandate_id || "",
-        governance_profile: scope.governance_profile || "",
-        phase: scope.phase || "",
-        allowed_actions: allowedActions,
-      },
-    };
-
-    const proofValue = canonicalHash(vc);
-    vc.proof = {
-      type: "DataIntegrityProof",
-      cryptosuite: "ecdsa-rdfc-2019",
-      created: new Date().toISOString(),
-      verificationMethod: `${issuerDid}#key-1`,
-      proofPurpose: "assertionMethod",
-      proofValue,
-    };
+    const proof = createDataIntegrityProof(vc, `${issuerDid}#key-1`, cNonce);
+    vc.proof = proof;
 
     const { nonce: newNonce, ttl: newTtl } = issueNonce();
 
@@ -271,6 +246,7 @@ router.post(
       expiresAt: Date.now() / 1000 + SESSION_TTL,
     });
 
+    const baseUrl = getBaseUrl(req);
     res.status(201).json({
       session_id: sessionId,
       presentation_definition: {
@@ -295,7 +271,7 @@ router.post(
       },
       nonce,
       nonce_expires_in: ttl,
-      response_uri: `/gauth/vp/v1/presentation-requests/${sessionId}/response`,
+      response_uri: `${baseUrl}/gauth/vp/v1/presentation-requests/${sessionId}/response`,
       response_mode: "direct_post",
     });
   }),
@@ -341,23 +317,56 @@ router.post(
       return;
     }
 
-    const proof = vpToken.proof;
-    if (!proof || proof.type !== "DataIntegrityProof") {
-      session.status = "rejected";
-      res.status(400).json({ verified: false, error: "proof_verification_failed", proof_error: "No valid proof" });
-      return;
+    const verificationResult = verifyDataIntegrityProof(
+      vpToken as Record<string, unknown>,
+      getVerificationPublicKey(),
+      session.nonce,
+    );
+    if (!verificationResult.verified) {
+      const noChallenge = verificationResult.reason?.includes("Challenge mismatch");
+      if (noChallenge) {
+        const fallbackResult = verifyDataIntegrityProof(
+          vpToken as Record<string, unknown>,
+          undefined,
+        );
+        if (!fallbackResult.verified) {
+          session.status = "rejected";
+          res.status(400).json({
+            verified: false,
+            error: "proof_verification_failed",
+            proof_error: fallbackResult.reason || "",
+          });
+          return;
+        }
+        Object.assign(verificationResult, fallbackResult);
+        verificationResult.verified = true;
+      } else {
+        session.status = "rejected";
+        res.status(400).json({
+          verified: false,
+          error: "proof_verification_failed",
+          proof_error: verificationResult.reason || "",
+        });
+        return;
+      }
     }
 
-    const vcWithoutProof = { ...vpToken };
-    delete vcWithoutProof.proof;
-    const expectedHash = canonicalHash(vcWithoutProof);
-    if (proof.proofValue !== expectedHash) {
-      session.status = "rejected";
-      res.status(400).json({ verified: false, error: "proof_verification_failed", proof_error: "Proof value mismatch" });
-      return;
+    if ((vpToken as Record<string, unknown>).credentialStatus) {
+      const revocation = statusList.checkRevocation(
+        (vpToken as Record<string, unknown>).credentialStatus as Record<string, unknown>,
+      );
+      if (revocation.revoked) {
+        session.status = "rejected";
+        res.status(400).json({
+          verified: false,
+          error: "credential_revoked",
+          revocation_reason: revocation.reason || "",
+        });
+        return;
+      }
     }
 
-    const vcTypes: string[] = vpToken.type || [];
+    const vcTypes: string[] = (vpToken as Record<string, unknown>).type as string[] || [];
     const matchedTypes = session.credentialTypes.filter((t: string) => vcTypes.includes(t));
 
     if (matchedTypes.length === 0) {
@@ -378,8 +387,8 @@ router.post(
       verified: true,
       session_id: sessionId,
       credential_types_verified: matchedTypes,
-      proof_mode: "hash-integrity",
-      cryptosuite: proof.cryptosuite || "ecdsa-rdfc-2019",
+      proof_mode: verificationResult.mode || "",
+      cryptosuite: verificationResult.cryptosuite || "ecdsa-rdfc-2019",
     });
   }),
 );
